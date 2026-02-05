@@ -1,0 +1,29 @@
+.DS_Store
+.idea
+.vscode
+.claude
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.python-version
+.venv/
+*.log
+
+# Env
+.env
+.env.*
+
+# Node/Next
+node_modules/
+.next/
+*.tsbuildinfo
+bun.lockb
+
+# Local exports
+*.md.export
+*.json.export
+
