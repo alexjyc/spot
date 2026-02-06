@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -172,7 +171,7 @@ class RestaurantAgent(BaseAgent):
             unique_items,
             key=lambda x: x.get("score", 0),
             reverse=True,
-        )[:20]
+        )[:10]  # Reduced from 20 to prevent LLM timeout
 
         # Format for LLM
         search_text = "\n\n".join(

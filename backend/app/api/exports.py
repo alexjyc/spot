@@ -9,30 +9,40 @@ from fastapi.responses import PlainTextResponse, Response
 router = APIRouter(prefix="/api")
 
 
-def _render_markdown(itinerary: dict[str, Any]) -> str:
-    title = itinerary.get("title") or "Itinerary"
-    city = itinerary.get("city")
-    out: list[str] = [f"# {title}"]
-    if city:
-        out.append(f"**City:** {city}")
-    out.append("")
-    for i, day in enumerate(itinerary.get("days") or []):
-        label = day.get("dateLabel") or f"Day {i + 1}"
-        out.append(f"## {label}")
-        for slot in day.get("slots") or []:
-            out.append(f"### {slot.get('label')}")
-            for item in slot.get("items") or []:
-                name = item.get("name") or "Item"
-                url = item.get("url")
-                line = f"- **{name}**"
-                if url:
-                    line += f" — {url}"
-                if item.get("hoursText"):
-                    line += f"  \n  _Hours:_ {item['hoursText']}"
-                if item.get("address"):
-                    line += f"  \n  _Address:_ {item['address']}"
-                out.append(line)
+def _render_spot_on_markdown(final_output: dict[str, Any]) -> str:
+    constraints = final_output.get("constraints") or {}
+    destination = constraints.get("destination") or "Destination"
+    out: list[str] = [f"# Spot On — {destination}", ""]
+
+    def _section(title: str, items: list[dict[str, Any]], key_name: str = "name") -> None:
+        if not items:
+            return
+        out.append(f"## {title}")
+        for item in items:
+            name = item.get(key_name) or "Item"
+            url = item.get("url")
+            line = f"- **{name}**"
+            if url:
+                line += f" — {url}"
+            snippet = item.get("snippet")
+            why = item.get("why_recommended")
+            if why:
+                line += f"  \n  _Why:_ {why}"
+            elif snippet:
+                line += f"  \n  _Note:_ {snippet}"
+            if item.get("hours_text"):
+                line += f"  \n  _Hours:_ {item['hours_text']}"
+            if item.get("address"):
+                line += f"  \n  _Address:_ {item['address']}"
+            out.append(line)
         out.append("")
+
+    _section("🍽️ Restaurants", final_output.get("restaurants") or [])
+    _section("🏛️ Must-See Spots", final_output.get("travel_spots") or [])
+    _section("🏨 Hotels", final_output.get("hotels") or [])
+    _section("🚗 Car Rentals", final_output.get("car_rentals") or [], key_name="provider")
+    _section("✈️ Flights", final_output.get("flights") or [], key_name="route")
+
     return "\n".join(out).strip() + "\n"
 
 
@@ -49,23 +59,28 @@ async def export_run(
     doc = await mongo.get_run(runId)
     if not doc:
         raise HTTPException(status_code=404, detail="Run not found")
-    itinerary = doc.get("itinerary")
-    if not itinerary:
-        raise HTTPException(status_code=409, detail="Itinerary not ready")
+    final_output = doc.get("final_output")
+
+    if not final_output:
+        raise HTTPException(
+            status_code=409,
+            detail="Run output not ready (legacy itinerary exports are not supported)",
+        )
 
     if format == "json":
-        content = json.dumps(itinerary, ensure_ascii=False, indent=2).encode("utf-8")
+        content = json.dumps(final_output, ensure_ascii=False, indent=2).encode("utf-8")
+        filename = "spot-on"
         return Response(
             content=content,
             media_type="application/json",
-            headers={
-                "Content-Disposition": f'attachment; filename="itinerary-{runId}.json"'
-            },
+            headers={"Content-Disposition": f'attachment; filename="{filename}-{runId}.json"'},
         )
 
-    md = itinerary.get("markdown") or _render_markdown(itinerary)
+    md = _render_spot_on_markdown(final_output)
+    filename = f"spot-on-{runId}.md"
+
     return PlainTextResponse(
         content=md,
-        headers={"Content-Disposition": f'attachment; filename="itinerary-{runId}.md"'},
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         media_type="text/markdown; charset=utf-8",
     )

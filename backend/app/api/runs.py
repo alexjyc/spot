@@ -51,6 +51,7 @@ async def _execute_run(deps: Any, run_id: str) -> None:
             "status": "running",
             "agent_statuses": {},
             "warnings": [],
+            "constraints": run_doc.get("constraints") or {},
         }
 
         final_state = await graph.ainvoke(initial_state)
@@ -103,8 +104,13 @@ async def create_run(req: RunCreateRequest, request: Request) -> RunCreateRespon
         raise HTTPException(status_code=500, detail="MongoDB is not configured")
 
     run_id = new_run_id()
-    options = (req.options.model_dump() if req.options else {}) or {}
-    await mongo.create_run(run_id, req.prompt, options)
+    options = dict(req.options or {})
+    await mongo.create_run(
+        run_id,
+        prompt=req.prompt,
+        constraints=req.constraints,
+        options=options,
+    )
     await mongo.append_event(
         run_id,
         type="node",
@@ -132,10 +138,8 @@ async def get_run(runId: str, request: Request) -> RunGetResponse:
         status=doc["status"],
         updatedAt=doc["updatedAt"],
         constraints=doc.get("constraints"),
-        itinerary=doc.get("itinerary"),
         final_output=doc.get("final_output"),
         warnings=doc.get("warnings") or [],
-        citations=doc.get("citations") or [],
         error=doc.get("error"),
         durationMs=doc.get("durationMs"),
     )
@@ -176,10 +180,18 @@ async def run_events(runId: str, request: Request):
                     idle += 1
                     # Stop after completion + brief idle to let final events flush.
                     run = await mongo.get_run(runId)
-                    if run and run.get("status") in {"done", "error"} and idle >= 6:
+                    if run and run.get("status") in {"done", "error"} and idle >= 30:
                         break
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(0.1)
         except asyncio.CancelledError:
             return
 
-    return StreamingResponse(_gen(), media_type="text/event-stream")
+    return StreamingResponse(
+        _gen(), 
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )

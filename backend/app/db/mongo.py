@@ -24,29 +24,43 @@ class MongoService:
         self.run_events = self.db["run_events"]
         self.artifacts = self.db["artifacts"]
 
+    def close(self) -> None:
+        self.client.close()
+
     async def ping(self) -> None:
         await self.client.admin.command("ping")
 
     async def ensure_indexes(self) -> None:
         await self.runs.create_index([("updatedAt", ASCENDING)])
-        await self.run_events.create_index([("runId", ASCENDING), ("ts", ASCENDING)])
-        await self.artifacts.create_index([("runId", ASCENDING), ("ts", ASCENDING)])
+        await self.runs.create_index([("status", ASCENDING), ("updatedAt", ASCENDING)])
+        await self.run_events.create_index(
+            [("runId", ASCENDING), ("ts", ASCENDING), ("_id", ASCENDING)]
+        )
+        await self.artifacts.create_index(
+            [("runId", ASCENDING), ("ts", ASCENDING), ("_id", ASCENDING)]
+        )
 
     async def create_run(
-        self, run_id: str, prompt: str, options: dict[str, Any]
+        self,
+        run_id: str,
+        *,
+        prompt: str | None,
+        constraints: dict[str, Any] | None,
+        options: dict[str, Any],
     ) -> None:
         doc = {
             "_id": run_id,
             "status": "queued",
             "createdAt": utc_now(),
             "updatedAt": utc_now(),
-            "prompt": prompt,
+            "prompt": prompt or "",
             "options": options,
-            "constraints": None,
+            "constraints": constraints,
             "warnings": [],
-            "citations": [],
-            "itinerary": None,
+            "final_output": None,
             "error": None,
+            "runType": "spot_on",
+            "apiVersion": 1,
         }
         await self.runs.insert_one(doc)
 

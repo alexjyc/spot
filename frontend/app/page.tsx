@@ -1,165 +1,485 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { format, isBefore, startOfDay } from "date-fns";
+import { Search, MapPin, Target, Calendar as CalendarIcon, AlertCircle } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import ResultsView from "../components/ResultsView";
+import { createRun, getRun } from "../lib/api";
+import { subscribeToRunEvents } from "../lib/sse";
+import { DatePicker } from "../components/ui/DatePicker";
+import { Combobox } from "../components/ui/Combobox";
+
+type SpotOnResults = {
+  restaurants?: any[];
+  travel_spots?: any[];
+  hotels?: any[];
+  car_rentals?: any[];
+  flights?: any[];
+  constraints?: Record<string, any>;
+};
+
+type NodeStatus = "start" | "end" | "error";
+
+type NodeEventPayload = {
+  node: string;
+  status: NodeStatus;
+  message?: string;
+  durationMs?: number;
+  error?: string;
+};
+
+type ArtifactEventPayload = {
+  type: string;
+  payload: Record<string, any>;
+};
 
 export default function Page() {
   const [origin, setOrigin] = useState("");
   const [destination, setDestination] = useState("");
-  const [departingDate, setDepartingDate] = useState("");
-  const [returningDate, setReturningDate] = useState("");
-  const [results, setResults] = useState<any>(null);
+  const [departingDate, setDepartingDate] = useState<Date | undefined>(undefined);
+  const [returningDate, setReturningDate] = useState<Date | undefined>(undefined);
+  const [results, setResults] = useState<SpotOnResults | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [runId, setRunId] = useState<string | null>(null);
+  const [nodes, setNodes] = useState<Record<string, NodeEventPayload>>({});
+  const [logs, setLogs] = useState<string[]>([]);
+
+  const eventSourceRef = useRef<{ close: () => void } | null>(null);
+  const timeoutRef = useRef<number | null>(null);
+  const pollIntervalRef = useRef<number | null>(null);
+
+  const cleanup = () => {
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+    if (timeoutRef.current) {
+      window.clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+    if (pollIntervalRef.current) {
+      window.clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    return () => cleanup();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const [fieldErrors, setFieldErrors] = useState<{ origin?: boolean; destination?: boolean; departing?: boolean }>({});
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-    setError(null);
-    setResults(null);
+    cleanup();
 
-    const prompt = `From ${origin} to ${destination}, departing ${departingDate}${
-      returningDate ? `, returning ${returningDate}` : ""
-    }`;
+    // Reset errors
+    setError(null);
+    setFieldErrors({});
+
+    // Validate fields
+    const newErrors = {
+      origin: !origin.trim(),
+      destination: !destination.trim(),
+      departing: !departingDate,
+    };
+
+    // Date constraint validation
+    if (departingDate && returningDate && isBefore(returningDate, departingDate)) {
+      // This should physically not be possible due to minDate, but as a fallback:
+      setFieldErrors(prev => ({ ...prev, departing: true })); // Or a specific error
+      setError("Return date must be after departing date");
+      return;
+    }
+
+    if (Object.values(newErrors).some(Boolean)) {
+      setFieldErrors(newErrors);
+      // Optional: Shake logic could go here if using Framer Motion on the container
+      return;
+    }
+
+    setLoading(true);
+    setResults(null);
+    setRunId(null);
+    setNodes({});
+    setLogs([]);
+
+    const deptStr = format(departingDate!, "yyyy-MM-dd");
+    const retStr = returningDate ? format(returningDate, "yyyy-MM-dd") : "";
+
+    const prompt = `From ${origin} to ${destination}, departing ${deptStr}${retStr ? `, returning ${retStr}` : ""
+      }`;
+
+    // Structured constraints to bypass LLM
+    const constraints = {
+      origin,
+      destination,
+      departing_date: deptStr,
+      returning_date: retStr || null,
+    };
 
     try {
-      const res = await fetch("/api/runs", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ prompt, options: {} }),
+      const { runId } = await createRun({ prompt, constraints, options: {} });
+      // ... rest of submit logic
+      setRunId(runId);
+
+      const startPollingFallback = () => {
+        if (pollIntervalRef.current) return;
+        pollIntervalRef.current = window.setInterval(async () => {
+          try {
+            const run = await getRun(runId);
+            if (run.status === "done") {
+              setResults(run.final_output);
+              setLoading(false);
+              cleanup();
+            } else if (run.status === "error") {
+              setError(run.error?.message || "Run failed");
+              setLoading(false);
+              cleanup();
+            }
+          } catch {
+            // ignore
+          }
+        }, 2000);
+      };
+
+      eventSourceRef.current = subscribeToRunEvents(runId, {
+        onNode: (data: NodeEventPayload) => {
+          if (data?.node) setNodes((prev) => ({ ...prev, [data.node]: data }));
+        },
+        onLog: (data: { message?: string }) => {
+          const msg = data?.message;
+          if (msg) setLogs((prev) => [...prev.slice(-30), msg]);
+        },
+        onArtifact: (data: ArtifactEventPayload) => {
+          if (data?.type === "final_output" && data.payload?.final_output) {
+            setResults(data.payload.final_output);
+            setLoading(false);
+            cleanup();
+            return;
+          }
+          if (data?.type === "constraints" && data.payload?.constraints) {
+            setResults((prev) => ({
+              ...(prev || {}),
+              constraints: data.payload.constraints,
+            }));
+          }
+        },
+        onError: () => {
+          // Dev proxies sometimes break SSE; fall back to polling.
+          cleanup();
+          startPollingFallback();
+        },
       });
 
-      if (!res.ok) {
-        throw new Error("Failed to create run");
-      }
-
-      const { runId } = await res.json();
-
-      // Poll for results
-      const pollInterval = setInterval(async () => {
-        try {
-          const runRes = await fetch(`/api/runs/${runId}`);
-          const run = await runRes.json();
-
-          if (run.status === "done") {
-            setResults(run.final_output);
-            setLoading(false);
-            clearInterval(pollInterval);
-          } else if (run.status === "error") {
-            setError(run.error?.message || "Run failed");
-            setLoading(false);
-            clearInterval(pollInterval);
-          }
-        } catch (err) {
-          console.error("Polling error:", err);
-        }
-      }, 2000);
-
-      // Timeout after 2 minutes
-      setTimeout(() => {
-        clearInterval(pollInterval);
-        if (loading) {
-          setError("Request timed out");
-          setLoading(false);
-        }
-      }, 120000);
+      // Timeout after 3 minutes (backend runs can take 120-180s)
+      timeoutRef.current = window.setTimeout(() => {
+        setError("Request timed out");
+        setLoading(false);
+        cleanup();
+      }, 180000);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
       setLoading(false);
+      cleanup();
     }
   };
+
+  const orderedNodes = [
+    "ParseRequest",
+    "RestaurantAgent",
+    "AttractionsAgent",
+    "HotelAgent",
+    "TransportAgent",
+    "EnrichmentAgent",
+    "AggregateResults",
+  ];
 
   return (
     <main
       style={{
         minHeight: "100vh",
-        background: "linear-gradient(180deg, #f5f5f7 0%, #ffffff 100%)",
-        padding: "60px 20px",
+        background: "#ffffff",
+        paddingBottom: "80px",
       }}
     >
-      <div style={{ maxWidth: 1200, margin: "0 auto" }}>
-        <header style={{ textAlign: "center", marginBottom: 60 }}>
+      {/* Hero Section */}
+      <div
+        style={{
+          background: "linear-gradient(180deg, #f7f7f7 0%, #ffffff 100%)",
+          padding: "80px 20px 60px",
+          textAlign: "center",
+          borderBottom: "1px solid #f0f0f0",
+        }}
+      >
+        <div style={{ maxWidth: 800, margin: "0 auto" }}>
           <h1
             style={{
-              fontSize: "clamp(42px, 6vw, 56px)",
-              fontWeight: 700,
+              fontSize: "clamp(48px, 5vw, 72px)",
+              fontWeight: 800,
               color: "#1d1d1f",
               margin: 0,
-              letterSpacing: "-0.03em",
-              lineHeight: 1.05,
+              letterSpacing: "-0.04em",
+              lineHeight: 1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "16px",
             }}
           >
-            Spot On ✈️
+            Spot On <Target size={56} color="#FF4F00" strokeWidth={2.5} />
           </h1>
           <p
             style={{
-              fontSize: "19px",
+              fontSize: "21px",
               color: "#86868b",
-              marginTop: "16px",
-              maxWidth: "560px",
-              margin: "16px auto 0",
+              marginTop: "24px",
+              fontWeight: 400,
+              maxWidth: "540px",
+              margin: "24px auto 0",
               lineHeight: 1.5,
+              letterSpacing: "-0.01em",
             }}
           >
-            Fast travel recommendations for restaurants, attractions, hotels,
-            and transport.
+            AI-powered travel recommendations. <br />
+            Simply curated. Beautifully presented.
           </p>
-        </header>
+        </div>
+      </div>
 
-        <form onSubmit={handleSubmit} style={{ marginBottom: 60 }}>
+      {/* Floating Search Card */}
+      <div style={{ maxWidth: 1000, margin: "-40px auto 0", padding: "0 20px", position: "relative", zIndex: 10 }}>
+        <form
+          onSubmit={handleSubmit}
+          noValidate
+          style={{
+            background: "rgba(255, 255, 255, 0.9)",
+            backdropFilter: "blur(20px)",
+            WebkitBackdropFilter: "blur(20px)",
+            padding: "32px",
+            borderRadius: "32px",
+            boxShadow: "0 20px 40px rgba(0,0,0,0.08), 0 1px 4px rgba(0,0,0,0.04)",
+            border: "1px solid rgba(255,255,255,0.4)",
+          }}
+        >
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-              gap: 20,
-              marginBottom: 24,
+              gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+              gap: 24,
+              marginBottom: 32,
             }}
           >
-            <input
-              placeholder="Origin (e.g., Tokyo)"
-              value={origin}
-              onChange={(e) => setOrigin(e.target.value)}
-              required
-              style={inputStyle}
-            />
-            <input
-              placeholder="Destination (e.g., Seoul)"
-              value={destination}
-              onChange={(e) => setDestination(e.target.value)}
-              required
-              style={inputStyle}
-            />
-            <input
-              type="date"
-              value={departingDate}
-              onChange={(e) => setDepartingDate(e.target.value)}
-              required
-              style={inputStyle}
-              placeholder="Departing date"
-            />
-            <input
-              type="date"
-              value={returningDate}
-              onChange={(e) => setReturningDate(e.target.value)}
-              style={inputStyle}
-              placeholder="Return date (optional)"
-            />
+            {/* Origin */}
+            <div style={fieldContainerStyle}>
+              <label style={labelStyle}>Where from?</label>
+              <Combobox
+                placeholder="City or Airport"
+                value={origin}
+                onChange={(val) => {
+                  setOrigin(val);
+                  if (fieldErrors.origin) setFieldErrors(prev => ({ ...prev, origin: false }));
+                }}
+                hasError={fieldErrors.origin}
+                icon={<MapPin size={18} color={fieldErrors.origin ? "#ff3b30" : "#86868b"} />}
+              />
+            </div>
+
+            {/* Destination */}
+            <div style={fieldContainerStyle}>
+              <label style={labelStyle}>Where to?</label>
+              <Combobox
+                placeholder="City or Airport"
+                value={destination}
+                onChange={(val) => {
+                  setDestination(val);
+                  if (fieldErrors.destination) setFieldErrors(prev => ({ ...prev, destination: false }));
+                }}
+                hasError={fieldErrors.destination}
+                icon={<MapPin size={18} color={fieldErrors.destination ? "#ff3b30" : "#86868b"} />}
+              />
+            </div>
+
+            {/* Departing */}
+            <div style={fieldContainerStyle}>
+              <label style={labelStyle}>Departing</label>
+              <DatePicker
+                selected={departingDate}
+                onSelect={(date) => {
+                  setDepartingDate(date);
+                  // If return date is before new departing date, clear it
+                  if (date && returningDate && isBefore(returningDate, date)) {
+                    setReturningDate(undefined);
+                  }
+                  if (fieldErrors.departing) setFieldErrors(prev => ({ ...prev, departing: false }));
+                  setError(null);
+                }}
+                hasError={fieldErrors.departing}
+                placeholder="Add date"
+                minDate={new Date(new Date().setHours(0, 0, 0, 0))}
+              />
+            </div>
+
+            {/* Return */}
+            <div style={fieldContainerStyle}>
+              <label style={labelStyle}>
+                Return <span style={{ fontWeight: 400, color: "#86868b", textTransform: "none" }}>(optional)</span>
+              </label>
+              <DatePicker
+                selected={returningDate}
+                onSelect={(date) => {
+                  if (departingDate && date && isBefore(date, departingDate)) return;
+                  setReturningDate(date);
+                }}
+                placeholder="Add date"
+                minDate={departingDate || startOfDay(new Date())}
+              />
+            </div>
           </div>
-          <button type="submit" disabled={loading} style={buttonStyle(loading)}>
-            {loading ? "Searching..." : "Find Recommendations"}
-          </button>
+
+          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+            <button type="submit" disabled={loading} style={buttonStyle(loading)}>
+              {loading ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <Spinner />
+                  <span>Curating Trip</span>
+                </div>
+              ) : (
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <Search size={20} strokeWidth={2.5} />
+                  <span>Search</span>
+                </div>
+              )}
+            </button>
+          </div>
         </form>
+      </div>
+
+      {/* Progress & Results Area */}
+      <div style={{ maxWidth: 1000, margin: "60px auto 0", padding: "0 20px" }}>
+        {loading && (
+          <div style={{ animation: "fadeIn 0.5s ease-out" }}>
+            <div style={{
+              marginBottom: 24,
+              fontSize: "14px",
+              fontWeight: 600,
+              color: "#86868b",
+              textTransform: "uppercase",
+              letterSpacing: "0.04em"
+            }}>
+              Progress
+            </div>
+
+            <div style={{ display: "grid", gap: 8 }}>
+              {orderedNodes.map((name, i) => {
+                const ev = nodes[name];
+                const status = ev?.status;
+                const isActive = status === "start";
+                const isDone = status === "end";
+
+                return (
+                  <motion.div
+                    key={name}
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{
+                      opacity: status ? 1 : 0.4,
+                      x: 0,
+                      scale: isActive ? 1.02 : 1,
+                      backgroundColor: isDone ? "rgba(52, 199, 89, 0.05)" : "#ffffff",
+                      borderColor: isActive ? "#FF4F00" : isDone ? "#34c759" : "#e5e5ea",
+                      boxShadow: isActive ? "0 4px 12px rgba(255,79,0,0.1)" : "none",
+                    }}
+                    transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "16px 20px",
+                      borderWidth: "1px",
+                      borderStyle: "solid",
+                      borderRadius: "16px",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <motion.div
+                        animate={{
+                          scale: isActive ? [1, 1.2, 1] : 1,
+                          backgroundColor: isActive ? "#FF4F00" : isDone ? "#34c759" : ev?.status === "error" ? "#ff3b30" : "#d2d2d7"
+                        }}
+                        transition={isActive ? { repeat: Infinity, duration: 1.5 } : { duration: 0.3 }}
+                        style={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: "50%",
+                        }}
+                      />
+                      <span style={{ fontWeight: 600, fontSize: "15px" }}>{name}</span>
+                    </div>
+                    {isActive && (
+                      <motion.span
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        style={{ fontSize: "13px", color: "#FF4F00", fontWeight: 500 }}
+                      >
+                        Thinking...
+                      </motion.span>
+                    )}
+                    {isDone && (
+                      <motion.span
+                        initial={{ scale: 0.8, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        style={{ fontSize: "13px", color: "#34c759", fontWeight: 600 }}
+                      >
+                        Completed
+                      </motion.span>
+                    )}
+                  </motion.div>
+                );
+              })}
+            </div>
+
+            {logs.length > 0 && (
+              <div style={{ marginTop: 32 }}>
+                <div style={{
+                  fontFamily: "ui-monospace, SFMono-Regular, monospace",
+                  fontSize: 12,
+                  background: "#1d1d1f",
+                  color: "#f5f5f7",
+                  borderRadius: 16,
+                  padding: 20,
+                  maxHeight: 200,
+                  overflow: "auto",
+                  lineHeight: 1.6
+                }}>
+                  {logs.map((l, idx) => (
+                    <div key={`${idx}-${l}`} style={{ borderBottom: "1px solid #333", paddingBottom: 4, marginBottom: 4 }}>
+                      {">"} {l}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {error && (
           <div
             style={{
-              padding: 20,
-              background: "#ffebee",
-              borderRadius: 12,
+              padding: "24px",
+              background: "#fff0f0",
+              border: "1px solid #ffcdd2",
+              borderRadius: "16px",
               color: "#c62828",
               marginBottom: 40,
+              display: "flex",
+              alignItems: "center",
+              gap: 12
             }}
           >
-            {error}
+            ⚠️ {error}
           </div>
         )}
 
@@ -169,29 +489,92 @@ export default function Page() {
   );
 }
 
+
+function Spinner() {
+  return (
+    <div style={{ display: "flex", gap: 4 }}>
+      {[0, 1, 2].map((i) => (
+        <motion.div
+          key={i}
+          style={{
+            width: 8,
+            height: 8,
+            borderRadius: "50%",
+            backgroundColor: "#ffffff",
+          }}
+          animate={{
+            y: [0, -6, 0],
+            opacity: [0.6, 1, 0.6],
+          }}
+          transition={{
+            duration: 0.8,
+            repeat: Infinity,
+            delay: i * 0.2,
+            ease: "easeInOut",
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+const fieldContainerStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 10,
+};
+
+const labelStyle: React.CSSProperties = {
+  fontSize: "12px",
+  fontWeight: 700,
+  color: "#1d1d1f",
+  letterSpacing: "0.04em",
+  textTransform: "uppercase",
+  marginLeft: "4px",
+};
+
+const inputWrapperStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 12,
+  background: "#ffffff",
+  border: "1px solid #e5e5ea",
+  borderRadius: "14px",
+  padding: "0 16px",
+  transition: "all 0.2s ease",
+  height: "54px", // Fixed height to match datepicker
+};
+
 const inputStyle: React.CSSProperties = {
-  padding: "16px 20px",
-  fontSize: "17px",
-  border: "1px solid #d2d2d7",
-  borderRadius: 12,
+  flex: 1,
+  padding: "16px 0",
+  fontSize: "16px",
+  border: "none",
   outline: "none",
   fontFamily: "inherit",
-  backgroundColor: "#ffffff",
-  transition: "border-color 0.2s",
+  backgroundColor: "transparent",
+  fontWeight: 500,
+  color: "#1d1d1f",
 };
 
 const buttonStyle = (disabled: boolean): React.CSSProperties => ({
-  width: "100%",
-  padding: "18px 32px",
+  marginLeft: "auto",
+  padding: "0 40px",
+  height: "56px",
   fontSize: "17px",
   fontWeight: 600,
   color: "#ffffff",
   background: disabled
-    ? "#d2d2d7"
-    : "linear-gradient(135deg, #0071e3 0%, #005bb5 100%)",
+    ? "#86868b"
+    : "linear-gradient(135deg, #FF4F00 0%, #FF2E00 100%)", // Orange Gradient
   border: "none",
-  borderRadius: 12,
+  borderRadius: "100px",
   cursor: disabled ? "not-allowed" : "pointer",
-  transition: "transform 0.1s, box-shadow 0.2s",
-  boxShadow: disabled ? "none" : "0 4px 16px rgba(0, 113, 227, 0.24)",
+  transition: "all 0.2s ease",
+  boxShadow: disabled ? "none" : "0 8px 20px rgba(255, 79, 0, 0.4)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  width: "auto",
+  minWidth: "160px"
 });

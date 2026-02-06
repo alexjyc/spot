@@ -9,7 +9,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.agents.base import BaseAgent
 from app.schemas.spot_on import CarRentalOutput, FlightOutput, CarRentalList, FlightList
-from app.utils.dedup import canonicalize_url, normalize_name
+from app.utils.dedup import canonicalize_url
 
 
 class TransportAgent(BaseAgent):

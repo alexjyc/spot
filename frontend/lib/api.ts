@@ -11,6 +11,7 @@ export type RunOptions = {
 
 export type CreateRunRequest = {
   prompt: string;
+  constraints?: Record<string, any>;
   options?: RunOptions;
 };
 

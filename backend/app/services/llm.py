@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 class LLMService:
     """Wrapper around ChatOpenAI with structured output support."""
 
-    def __init__(self, api_key: str, model: str, *, timeout_seconds: float = 60.0) -> None:
+    def __init__(self, api_key: str, model: str, *, timeout_seconds: float = 120.0) -> None:
         if not api_key:
             raise ValueError("OPENAI_API_KEY is required")
         self.timeout_seconds = max(1.0, float(timeout_seconds))

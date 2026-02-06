@@ -85,6 +85,9 @@ class CarRentalOutput(BaseModel):
     pickup_location: str | None = Field(
         default=None, description="Pickup location (e.g., 'Airport', 'Downtown')"
     )
+    operating_hours: str | None = Field(
+        default=None, description="Operating hours (e.g., 'Mon-Fri 9am-5pm')"
+    )
     url: str = Field(description="Source URL for enrichment")
     why_recommended: str = Field(
         description="1-2 sentence explanation of why this is recommended"

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal, TypedDict
 import operator
+from typing import Annotated, Any, Literal, TypedDict
 
 
 class SpotOnState(TypedDict, total=False):
@@ -43,38 +43,3 @@ class SpotOnState(TypedDict, total=False):
     # Final
     status: Literal["queued", "running", "done", "error"]
     final_output: dict[str, Any]
-
-
-class GraphState(TypedDict, total=False):
-    runId: str
-    prompt: str
-    options: dict[str, Any]
-
-    status: Literal["queued", "running", "done", "error"]
-    constraints: dict[str, Any]
-
-    searchPlan: list[str]
-    rawSearch: list[dict[str, Any]]
-    candidates: list[dict[str, Any]]
-    references: list[dict[str, Any]]
-
-    weatherContext: dict[str, Any]
-
-    # Two-phase allocator fields
-    geoClusters: dict[str, list[str]]  # clusterLabel -> list of candidateIds
-    dayAllocations: list[dict[str, Any]]  # TravelAllocator output
-    dayPlanResults: list[dict[str, Any]]  # Parallel DayPlanner outputs
-    startTimeMs: int  # For timeout tracking
-    executionBudget: dict[str, Any]  # Per-phase time limits
-
-    slotTemplate: dict[str, Any]
-    draftItinerary: dict[str, Any]
-    alternatesBySlot: dict[str, Any]
-
-    itinerary: dict[str, Any]
-    markdown: str
-    warnings: Annotated[list[str], operator.add]
-    citations: list[dict[str, Any]]
-
-    usedCandidateIds: list[str]
-    scheduleAttempt: int

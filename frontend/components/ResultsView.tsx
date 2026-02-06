@@ -1,4 +1,16 @@
 import React from "react";
+import {
+  Utensils,
+  MapPin,
+  Building2,
+  Car,
+  Plane,
+  Clock,
+  Phone,
+  CreditCard,
+  ChevronRight,
+  Star
+} from "lucide-react";
 
 interface ResultsViewProps {
   results: {
@@ -20,64 +32,22 @@ export default function ResultsView({ results }: ResultsViewProps) {
   } = results;
 
   return (
-    <div style={{ display: "grid", gap: 60 }}>
-      {/* Restaurants */}
-      {restaurants.length > 0 && (
-        <section>
-          <h2 style={sectionHeaderStyle}>🍽️ Restaurants</h2>
-          <p style={sectionSubtitle}>Best dining for your first day</p>
-          <div style={{ display: "grid", gap: 20, marginTop: 24 }}>
-            {restaurants.map((r) => (
-              <RestaurantCard key={r.id} restaurant={r} />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Travel Spots */}
-      {travel_spots.length > 0 && (
-        <section>
-          <h2 style={sectionHeaderStyle}>🏛️ Must-See Spots</h2>
-          <p style={sectionSubtitle}>Top 3 attractions to visit</p>
-          <div style={{ display: "grid", gap: 20, marginTop: 24 }}>
-            {travel_spots.map((t) => (
-              <AttractionCard key={t.id} attraction={t} />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Hotels */}
-      {hotels.length > 0 && (
-        <section>
-          <h2 style={sectionHeaderStyle}>🏨 Hotels</h2>
-          <p style={sectionSubtitle}>Recommended accommodations</p>
-          <div style={{ display: "grid", gap: 20, marginTop: 24 }}>
-            {hotels.map((h) => (
-              <HotelCard key={h.id} hotel={h} />
-            ))}
-          </div>
-        </section>
-      )}
-
+    <div style={{ display: "grid", gap: 80, paddingBottom: 60 }}>
       {/* Transport */}
       {(car_rentals.length > 0 || flights.length > 0) && (
-        <section>
-          <h2 style={sectionHeaderStyle}>🚗 Transportation</h2>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-              gap: 40,
-              marginTop: 24,
-            }}
-          >
+        <section className="animate-fadeIn">
+          <SectionHeader
+            icon={<Car size={28} className="text-[#FF4F00]" />}
+            title="Transportation"
+            subtitle="Getting there and getting around."
+          />
+          <div style={{ display: "grid", gap: 40, marginTop: 32 }}>
             {car_rentals.length > 0 && (
               <div>
-                <h3 style={subsectionHeaderStyle}>Car Rentals</h3>
-                <div style={{ display: "grid", gap: 16, marginTop: 16 }}>
-                  {car_rentals.map((c) => (
-                    <CarRentalCard key={c.id} car={c} />
+                <h3 style={subHeaderStyle}>Car Rentals</h3>
+                <div style={compactGridStyle}>
+                  {car_rentals.map((c, i) => (
+                    <CarRentalCard key={c.id || i} car={c} />
                   ))}
                 </div>
               </div>
@@ -85,10 +55,10 @@ export default function ResultsView({ results }: ResultsViewProps) {
 
             {flights.length > 0 && (
               <div>
-                <h3 style={subsectionHeaderStyle}>Flights</h3>
-                <div style={{ display: "grid", gap: 16, marginTop: 16 }}>
-                  {flights.map((f) => (
-                    <FlightCard key={f.id} flight={f} />
+                <h3 style={subHeaderStyle}>Flights</h3>
+                <div style={compactGridStyle}>
+                  {flights.map((f, i) => (
+                    <FlightCard key={f.id || i} flight={f} />
                   ))}
                 </div>
               </div>
@@ -96,6 +66,84 @@ export default function ResultsView({ results }: ResultsViewProps) {
           </div>
         </section>
       )}
+
+      {/* Hotels */}
+      {hotels.length > 0 && (
+        <section className="animate-fadeIn" style={{ animationDelay: "0.1s" }}>
+          <SectionHeader
+            icon={<Building2 size={28} className="text-[#FF4F00]" />}
+            title="Where to Stay"
+            subtitle="Highly rated accommodations for comfort."
+          />
+          <div style={gridStyle}>
+            {hotels.map((h, i) => (
+              <HotelCard key={h.id || i} hotel={h} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Restaurants */}
+      {restaurants.length > 0 && (
+        <section className="animate-fadeIn" style={{ animationDelay: "0.2s" }}>
+          <SectionHeader
+            icon={<Utensils size={28} className="text-[#FF4F00]" />}
+            title="Dining"
+            subtitle="Curated culinary experiences for your first meal."
+          />
+          <div style={gridStyle}>
+            {restaurants.map((r, i) => (
+              <RestaurantCard key={r.id || i} restaurant={r} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Travel Spots */}
+      {travel_spots.length > 0 && (
+        <section className="animate-fadeIn" style={{ animationDelay: "0.3s" }}>
+          <SectionHeader
+            icon={<MapPin size={28} className="text-[#FF4F00]" />}
+            title="Must-See Spots"
+            subtitle="Top attractions to start your journey."
+          />
+          <div style={gridStyle}>
+            {travel_spots.map((t, i) => (
+              <AttractionCard key={t.id || i} attraction={t} />
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
+// -- Components --
+
+function SectionHeader({ icon, title, subtitle }: { icon: React.ReactNode, title: string, subtitle: string }) {
+  return (
+    <div style={{ marginBottom: 32, display: "flex", alignItems: "flex-start", gap: 16 }}>
+      <div style={{
+        padding: 12,
+        background: "#fff7ed",
+        borderRadius: "16px",
+        color: "#FF4F00"
+      }}>
+        {icon}
+      </div>
+      <div>
+        <h2 style={{
+          fontSize: 32,
+          fontWeight: 700,
+          color: "#1d1d1f",
+          letterSpacing: "-0.03em",
+          lineHeight: 1.1,
+          margin: "4px 0 8px 0"
+        }}>
+          {title}
+        </h2>
+        <p style={{ fontSize: 17, color: "#86868b", margin: 0, fontWeight: 400 }}>{subtitle}</p>
+      </div>
     </div>
   );
 }
@@ -103,39 +151,48 @@ export default function ResultsView({ results }: ResultsViewProps) {
 function RestaurantCard({ restaurant }: { restaurant: any }) {
   return (
     <div style={cardStyle}>
-      <div style={{ marginBottom: 12 }}>
-        <h3 style={cardTitleStyle}>{restaurant.name}</h3>
-        <div style={{ display: "flex", gap: 12, marginTop: 6 }}>
-          <span style={tagStyle}>{restaurant.cuisine}</span>
-          {restaurant.price_range && (
-            <span style={tagStyle}>{restaurant.price_range}</span>
+      <div style={{ padding: 24, flex: 1 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+          <h3 style={cardTitleStyle}>{restaurant.name}</h3>
+          {restaurant.rating && (
+            <div style={ratingBadgeStyle}>
+              <Star size={12} fill="#1d1d1f" /> <span>{restaurant.rating}</span>
+            </div>
           )}
-          {restaurant.area && <span style={areaStyle}>{restaurant.area}</span>}
         </div>
+
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+          <span style={pillStyle}>{restaurant.cuisine}</span>
+          {restaurant.price_range && <span style={pillStyle}>{restaurant.price_range}</span>}
+          {restaurant.area && <span style={secondaryPillStyle}>{restaurant.area}</span>}
+        </div>
+
+        <p style={descriptionStyle}>{restaurant.why_recommended}</p>
+
+        {(restaurant.hours_text || restaurant.phone || restaurant.address) && (
+          <div style={metaContainerStyle}>
+            {restaurant.hours_text && (
+              <div style={metaItemStyle}>
+                <Clock size={14} /> <span>{restaurant.hours_text}</span>
+              </div>
+            )}
+            {restaurant.address && (
+              <div style={metaItemStyle}>
+                <MapPin size={14} /> <span>{restaurant.address}</span>
+              </div>
+            )}
+            {restaurant.phone && (
+              <div style={metaItemStyle}>
+                <Phone size={14} /> <span>{restaurant.phone}</span>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      <p style={descriptionStyle}>{restaurant.why_recommended}</p>
-
-      {restaurant.tags && restaurant.tags.length > 0 && (
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
-          {restaurant.tags.map((tag: string) => (
-            <span key={tag} style={minTagStyle}>
-              {tag}
-            </span>
-          ))}
-        </div>
-      )}
-
-      {(restaurant.hours_text || restaurant.phone || restaurant.address) && (
-        <div style={enrichedSectionStyle}>
-          {restaurant.hours_text && <p>⏰ {restaurant.hours_text}</p>}
-          {restaurant.phone && <p>📞 {restaurant.phone}</p>}
-          {restaurant.address && <p>📍 {restaurant.address}</p>}
-        </div>
-      )}
-
-      <a href={restaurant.url} target="_blank" rel="noopener noreferrer" style={linkStyle}>
-        View Details →
+      <a href={restaurant.url} target="_blank" rel="noopener noreferrer" style={cardFooterLinkStyle}>
+        <span>Visit Website</span>
+        <ChevronRight size={16} />
       </a>
     </div>
   );
@@ -144,32 +201,43 @@ function RestaurantCard({ restaurant }: { restaurant: any }) {
 function AttractionCard({ attraction }: { attraction: any }) {
   return (
     <div style={cardStyle}>
-      <div style={{ marginBottom: 12 }}>
+      <div style={{ padding: 24, flex: 1 }}>
         <h3 style={cardTitleStyle}>{attraction.name}</h3>
-        <div style={{ display: "flex", gap: 12, marginTop: 6 }}>
-          <span style={tagStyle}>{attraction.kind}</span>
-          {attraction.area && <span style={areaStyle}>{attraction.area}</span>}
+
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+          <span style={pillStyle}>{attraction.kind}</span>
+          {attraction.area && <span style={secondaryPillStyle}>{attraction.area}</span>}
+          {attraction.reservation_required && (
+            <span style={{ ...pillStyle, background: "#fff0f0", color: "#c62828" }}>
+              Reservation Required
+            </span>
+          )}
+        </div>
+
+        <p style={descriptionStyle}>{attraction.why_recommended}</p>
+
+        <div style={metaContainerStyle}>
+          {attraction.hours_text && (
+            <div style={metaItemStyle}>
+              <Clock size={14} /> <span>{attraction.hours_text}</span>
+            </div>
+          )}
+          {attraction.estimated_duration_min && (
+            <div style={metaItemStyle}>
+              <Clock size={14} /> <span>~{attraction.estimated_duration_min} mins</span>
+            </div>
+          )}
+          {attraction.price_hint && (
+            <div style={metaItemStyle}>
+              <CreditCard size={14} /> <span>{attraction.price_hint}</span>
+            </div>
+          )}
         </div>
       </div>
 
-      <p style={descriptionStyle}>{attraction.why_recommended}</p>
-
-      {attraction.estimated_duration_min && (
-        <p style={metaStyle}>
-          ⏱️ Estimated visit: {attraction.estimated_duration_min} minutes
-        </p>
-      )}
-
-      {(attraction.hours_text || attraction.address || attraction.price_hint) && (
-        <div style={enrichedSectionStyle}>
-          {attraction.hours_text && <p>⏰ {attraction.hours_text}</p>}
-          {attraction.price_hint && <p>💰 {attraction.price_hint}</p>}
-          {attraction.address && <p>📍 {attraction.address}</p>}
-        </div>
-      )}
-
-      <a href={attraction.url} target="_blank" rel="noopener noreferrer" style={linkStyle}>
-        View Details →
+      <a href={attraction.url} target="_blank" rel="noopener noreferrer" style={cardFooterLinkStyle}>
+        <span>View Details</span>
+        <ChevronRight size={16} />
       </a>
     </div>
   );
@@ -178,38 +246,42 @@ function AttractionCard({ attraction }: { attraction: any }) {
 function HotelCard({ hotel }: { hotel: any }) {
   return (
     <div style={cardStyle}>
-      <div style={{ marginBottom: 12 }}>
-        <h3 style={cardTitleStyle}>{hotel.name}</h3>
-        <div style={{ display: "flex", gap: 12, marginTop: 6 }}>
+      <div style={{ padding: 24, flex: 1 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+          <h3 style={cardTitleStyle}>{hotel.name}</h3>
           {hotel.price_per_night && (
-            <span style={priceStyle}>{hotel.price_per_night}/night</span>
+            <div style={priceBadgeStyle}>{hotel.price_per_night}<span style={{ fontSize: 12, fontWeight: 400 }}>/night</span></div>
           )}
-          {hotel.area && <span style={areaStyle}>{hotel.area}</span>}
         </div>
-      </div>
 
-      <p style={descriptionStyle}>{hotel.why_recommended}</p>
-
-      {hotel.amenities && hotel.amenities.length > 0 && (
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
-          {hotel.amenities.map((amenity: string) => (
-            <span key={amenity} style={minTagStyle}>
-              {amenity}
-            </span>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+          {hotel.area && <span style={secondaryPillStyle}>{hotel.area}</span>}
+          {hotel.amenities?.slice(0, 3).map((am: string) => (
+            <span key={am} style={tertiaryPillStyle}>{am}</span>
           ))}
         </div>
-      )}
 
-      {(hotel.hours_text || hotel.phone || hotel.address) && (
-        <div style={enrichedSectionStyle}>
-          {hotel.hours_text && <p>⏰ {hotel.hours_text}</p>}
-          {hotel.phone && <p>📞 {hotel.phone}</p>}
-          {hotel.address && <p>📍 {hotel.address}</p>}
-        </div>
-      )}
+        <p style={descriptionStyle}>{hotel.why_recommended}</p>
 
-      <a href={hotel.url} target="_blank" rel="noopener noreferrer" style={linkStyle}>
-        View Details →
+        {(hotel.phone || hotel.address) && (
+          <div style={metaContainerStyle}>
+            {hotel.address && (
+              <div style={metaItemStyle}>
+                <MapPin size={14} /> <span>{hotel.address}</span>
+              </div>
+            )}
+            {hotel.phone && (
+              <div style={metaItemStyle}>
+                <Phone size={14} /> <span>{hotel.phone}</span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <a href={hotel.url} target="_blank" rel="noopener noreferrer" style={cardFooterLinkStyle}>
+        <span>Book Now</span>
+        <ChevronRight size={16} />
       </a>
     </div>
   );
@@ -218,16 +290,22 @@ function HotelCard({ hotel }: { hotel: any }) {
 function CarRentalCard({ car }: { car: any }) {
   return (
     <div style={compactCardStyle}>
-      <h4 style={compactCardTitleStyle}>{car.provider}</h4>
-      <p style={compactMetaStyle}>{car.vehicle_class}</p>
-      {car.price_per_day && (
-        <p style={compactPriceStyle}>{car.price_per_day}/day</p>
-      )}
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+        <h4 style={subTitleStyle}>{car.provider}</h4>
+        {car.price_per_day && <span style={compactPriceStyle}>{car.price_per_day}/day</span>}
+      </div>
+
+      <p style={{ fontSize: 15, fontWeight: 500, color: "#1d1d1f", margin: 0 }}>{car.vehicle_class}</p>
+
       {car.pickup_location && (
-        <p style={compactMetaStyle}>📍 {car.pickup_location}</p>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, fontSize: 13, color: "#86868b" }}>
+          <MapPin size={12} />
+          {car.pickup_location}
+        </div>
       )}
+
       <a href={car.url} target="_blank" rel="noopener noreferrer" style={compactLinkStyle}>
-        View Details →
+        Book Car
       </a>
     </div>
   );
@@ -236,164 +314,178 @@ function CarRentalCard({ car }: { car: any }) {
 function FlightCard({ flight }: { flight: any }) {
   return (
     <div style={compactCardStyle}>
-      <h4 style={compactCardTitleStyle}>{flight.route}</h4>
-      {flight.airline && (
-        <p style={compactMetaStyle}>✈️ {flight.airline}</p>
-      )}
-      <p style={compactMetaStyle}>
-        {flight.trip_type === "round-trip" ? "Round-trip" : "One-way"}
-      </p>
-      {flight.price_range && (
-        <p style={compactPriceStyle}>{flight.price_range}</p>
-      )}
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+        <h4 style={subTitleStyle}>{flight.airline || "Airline"}</h4>
+        {flight.price_range && <span style={compactPriceStyle}>{flight.price_range}</span>}
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <Plane size={16} color="#FF4F00" />
+        <span style={{ fontSize: 15, color: "#1d1d1f", fontWeight: 500 }}>{flight.route}</span>
+      </div>
+
+      <span style={tertiaryPillStyle}>{flight.trip_type === "round-trip" ? "Round-trip" : "One-way"}</span>
+
       <a href={flight.url} target="_blank" rel="noopener noreferrer" style={compactLinkStyle}>
-        View Details →
+        Check Flights
       </a>
     </div>
   );
 }
 
-// Styles
-const sectionHeaderStyle: React.CSSProperties = {
-  fontSize: 32,
-  fontWeight: 700,
-  color: "#1d1d1f",
-  margin: 0,
-  letterSpacing: "-0.02em",
+// -- Styles --
+
+const gridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))",
+  gap: 24,
+  marginTop: 16,
 };
 
-const sectionSubtitle: React.CSSProperties = {
-  fontSize: 17,
-  color: "#86868b",
-  marginTop: 8,
+const compactGridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+  gap: 16,
+  marginTop: 16,
 };
 
-const subsectionHeaderStyle: React.CSSProperties = {
-  fontSize: 24,
+const subHeaderStyle: React.CSSProperties = {
+  fontSize: 20,
   fontWeight: 600,
   color: "#1d1d1f",
-  margin: 0,
+  margin: "0 0 16px 0",
 };
 
 const cardStyle: React.CSSProperties = {
   background: "#ffffff",
-  borderRadius: 16,
-  padding: 24,
-  boxShadow: "0 2px 8px rgba(0, 0, 0, 0.08)",
-  border: "1px solid #e8e8ed",
-  transition: "transform 0.2s, box-shadow 0.2s",
+  borderRadius: 24,
+  boxShadow: "0 4px 24px rgba(0,0,0,0.04)",
+  border: "1px solid rgba(0,0,0,0.04)",
+  display: "flex",
+  flexDirection: "column",
+  transition: "transform 0.2s ease, box-shadow 0.2s ease",
+  overflow: "hidden",
 };
 
 const cardTitleStyle: React.CSSProperties = {
-  fontSize: 22,
-  fontWeight: 600,
+  fontSize: 20,
+  fontWeight: 700,
   color: "#1d1d1f",
   margin: 0,
+  lineHeight: 1.3,
 };
 
 const descriptionStyle: React.CSSProperties = {
   fontSize: 15,
-  color: "#6e6e73",
+  color: "#424245",
   lineHeight: 1.6,
-  margin: "12px 0 0 0",
+  margin: "16px 0 0 0",
 };
 
-const tagStyle: React.CSSProperties = {
+const pillStyle: React.CSSProperties = {
   display: "inline-block",
-  padding: "6px 12px",
-  fontSize: 13,
-  fontWeight: 600,
-  color: "#0071e3",
-  background: "#e8f4ff",
-  borderRadius: 8,
-};
-
-const areaStyle: React.CSSProperties = {
-  display: "inline-block",
-  padding: "6px 12px",
-  fontSize: 13,
-  color: "#6e6e73",
-  background: "#f5f5f7",
-  borderRadius: 8,
-};
-
-const priceStyle: React.CSSProperties = {
-  display: "inline-block",
-  padding: "6px 12px",
-  fontSize: 14,
-  fontWeight: 600,
-  color: "#1d8b3a",
-  background: "#e8f5e9",
-  borderRadius: 8,
-};
-
-const minTagStyle: React.CSSProperties = {
-  display: "inline-block",
-  padding: "4px 10px",
+  padding: "5px 12px",
   fontSize: 12,
-  color: "#6e6e73",
-  background: "#f5f5f7",
-  borderRadius: 6,
-};
-
-const metaStyle: React.CSSProperties = {
-  fontSize: 14,
-  color: "#86868b",
-  margin: "8px 0 0 0",
-};
-
-const enrichedSectionStyle: React.CSSProperties = {
-  marginTop: 16,
-  paddingTop: 16,
-  borderTop: "1px solid #e8e8ed",
-  fontSize: 14,
-  color: "#6e6e73",
-  lineHeight: 1.8,
-};
-
-const linkStyle: React.CSSProperties = {
-  display: "inline-block",
-  marginTop: 16,
-  fontSize: 15,
-  fontWeight: 600,
-  color: "#0071e3",
-  textDecoration: "none",
-  transition: "opacity 0.2s",
-};
-
-const compactCardStyle: React.CSSProperties = {
-  background: "#ffffff",
-  borderRadius: 12,
-  padding: 20,
-  boxShadow: "0 2px 6px rgba(0, 0, 0, 0.06)",
-  border: "1px solid #e8e8ed",
-};
-
-const compactCardTitleStyle: React.CSSProperties = {
-  fontSize: 18,
   fontWeight: 600,
   color: "#1d1d1f",
-  margin: 0,
+  background: "#f5f5f7",
+  borderRadius: 100,
+  letterSpacing: "0.01em",
 };
 
-const compactMetaStyle: React.CSSProperties = {
-  fontSize: 14,
+const secondaryPillStyle: React.CSSProperties = {
+  ...pillStyle,
+  background: "transparent",
+  border: "1px solid #e5e5ea",
   color: "#6e6e73",
-  margin: "6px 0 0 0",
+};
+
+const tertiaryPillStyle: React.CSSProperties = {
+  ...pillStyle,
+  fontSize: 11,
+  background: "#f5f5f7",
+  color: "#6e6e73",
+};
+
+const ratingBadgeStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 4,
+  fontSize: 13,
+  fontWeight: 600,
+  background: "#f5f5f7",
+  padding: "4px 8px",
+  borderRadius: 8,
+};
+
+const priceBadgeStyle: React.CSSProperties = {
+  fontSize: 15,
+  fontWeight: 600,
+  color: "#1d1d1f",
+};
+
+const metaContainerStyle: React.CSSProperties = {
+  marginTop: 20,
+  paddingTop: 16,
+  borderTop: "1px solid #f5f5f7",
+  display: "flex",
+  flexDirection: "column",
+  gap: 8,
+};
+
+const metaItemStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+  fontSize: 13,
+  color: "#86868b",
+  fontWeight: 500,
+};
+
+const cardFooterLinkStyle: React.CSSProperties = {
+  marginTop: "auto",
+  padding: "16px 24px",
+  background: "#fafafa",
+  borderTop: "1px solid #f5f5f7",
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  fontSize: 14,
+  fontWeight: 600,
+  textDecoration: "none",
+  transition: "background 0.2s",
+  color: "#FF4F00",
+};
+
+// Compact Cards (Transport)
+const compactCardStyle: React.CSSProperties = {
+  background: "#ffffff",
+  borderRadius: 16,
+  padding: 20,
+  boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
+  border: "1px solid rgba(0,0,0,0.04)",
+  display: "flex",
+  flexDirection: "column",
+};
+
+const subTitleStyle: React.CSSProperties = {
+  fontSize: 16,
+  fontWeight: 700,
+  color: "#1d1d1f",
+  margin: 0,
+  lineHeight: 1.3,
 };
 
 const compactPriceStyle: React.CSSProperties = {
-  fontSize: 16,
+  fontSize: 14,
   fontWeight: 600,
   color: "#1d8b3a",
-  margin: "8px 0 0 0",
 };
 
 const compactLinkStyle: React.CSSProperties = {
-  display: "inline-block",
-  marginTop: 12,
+  marginTop: 16,
   fontSize: 14,
   fontWeight: 600,
-  color: "#0071e3",
+  color: "#FF4F00",
   textDecoration: "none",
 };

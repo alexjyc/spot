@@ -58,43 +58,44 @@ def build_graph(deps: Any):
     transport_agent = TransportAgent("transport_agent", deps)
     enrichment_agent = EnrichmentAgent("enrichment_agent", deps)
 
-    def _wrap_node(
-        name: str, fn: Callable[[dict[str, Any]], Coroutine[Any, Any, dict[str, Any]]]
+    async def _emit_node_event(
+        run_id: str,
+        *,
+        node: str,
+        status: str,
+        message: str,
+        duration_ms: int | None = None,
+        error: str | None = None,
+    ) -> None:
+        payload: dict[str, Any] = {"node": node, "status": status, "message": message}
+        if duration_ms is not None:
+            payload["durationMs"] = duration_ms
+        if error:
+            payload["error"] = error
+        await deps.mongo.append_event(run_id, type="node", node=node, payload=payload)
+
+    def _wrap(
+        name: str,
+        fn: Callable[..., Coroutine[Any, Any, dict[str, Any]]],
+        *,
+        pass_deps_kwarg: bool,
     ):
-        """Wrap node function with logging and event emission.
-
-        For node functions (parse_request, aggregate_results) that need deps passed as kwarg.
-
-        Args:
-            name: Node name for logging
-            fn: Async node function that accepts (state, deps=deps)
-
-        Returns:
-            Wrapped async function
-        """
-
         async def _inner(state: dict[str, Any]) -> dict[str, Any]:
             run_id = state.get("runId")
             t0 = time.monotonic()
             logger.info("Graph node start: %s (runId=%s)", name, run_id or "-")
 
-            # Emit start event
             if run_id:
-                await deps.mongo.append_event(
+                await _emit_node_event(
                     run_id,
-                    type="node",
                     node=name,
-                    payload={
-                        "node": name,
-                        "status": "start",
-                        "message": f"{name} started",
-                    },
+                    status="start",
+                    message=f"{name} started",
                 )
 
             try:
-                out = await fn(state, deps=deps)
+                out = await (fn(state, deps=deps) if pass_deps_kwarg else fn(state))
                 duration_ms = int((time.monotonic() - t0) * 1000)
-
                 logger.info(
                     "Graph node end: %s (runId=%s, durationMs=%d)",
                     name,
@@ -102,23 +103,15 @@ def build_graph(deps: Any):
                     duration_ms,
                 )
 
-                # Emit end event
                 if run_id:
-                    await deps.mongo.append_event(
+                    await _emit_node_event(
                         run_id,
-                        type="node",
                         node=name,
-                        payload={
-                            "node": name,
-                            "status": "end",
-                            "message": f"{name} finished",
-                            "durationMs": duration_ms,
-                        },
+                        status="end",
+                        message=f"{name} finished",
+                        duration_ms=duration_ms,
                     )
 
-                # Store artifacts
-                if run_id:
-                    # Store constraints after parsing
                     if name == "ParseRequest" and out.get("constraints"):
                         await deps.mongo.add_artifact(
                             run_id,
@@ -126,24 +119,11 @@ def build_graph(deps: Any):
                             payload={"constraints": out.get("constraints")},
                         )
 
-                    # Store final output
-                    if name == "AggregateResults" and out.get("final_output"):
-                        await deps.mongo.add_artifact(
-                            run_id,
-                            type="final",
-                            payload={
-                                "final_output": out.get("final_output"),
-                                "warnings": state.get("warnings", [])
-                                + out.get("warnings", []),
-                            },
-                        )
-
                 return out
 
             except Exception as e:
-                logger.exception("Node failed: %s", name)
                 duration_ms = int((time.monotonic() - t0) * 1000)
-
+                logger.exception("Node failed: %s", name)
                 logger.error(
                     "Graph node error: %s (runId=%s, durationMs=%d, error=%s)",
                     name,
@@ -152,112 +132,15 @@ def build_graph(deps: Any):
                     str(e) or type(e).__name__,
                 )
 
-                # Emit error event
                 if run_id:
-                    await deps.mongo.append_event(
+                    await _emit_node_event(
                         run_id,
-                        type="node",
                         node=name,
-                        payload={
-                            "node": name,
-                            "status": "error",
-                            "message": f"{name} error",
-                            "error": str(e),
-                            "durationMs": duration_ms,
-                        },
+                        status="error",
+                        message=f"{name} error",
+                        duration_ms=duration_ms,
+                        error=str(e),
                     )
-
-                raise
-
-        return _inner
-
-    def _wrap_agent(
-        name: str, agent_method: Callable[[dict[str, Any]], Coroutine[Any, Any, dict[str, Any]]]
-    ):
-        """Wrap agent method with logging and event emission.
-
-        For agent methods (agent.execute) that already have self.deps and don't need deps passed.
-
-        Args:
-            name: Node name for logging
-            agent_method: Async agent method that accepts only (state)
-
-        Returns:
-            Wrapped async function
-        """
-
-        async def _inner(state: dict[str, Any]) -> dict[str, Any]:
-            run_id = state.get("runId")
-            t0 = time.monotonic()
-            logger.info("Graph node start: %s (runId=%s)", name, run_id or "-")
-
-            # Emit start event
-            if run_id:
-                await deps.mongo.append_event(
-                    run_id,
-                    type="node",
-                    node=name,
-                    payload={
-                        "node": name,
-                        "status": "start",
-                        "message": f"{name} started",
-                    },
-                )
-
-            try:
-                out = await agent_method(state)  # Agents use self.deps, no deps kwarg
-                duration_ms = int((time.monotonic() - t0) * 1000)
-
-                logger.info(
-                    "Graph node end: %s (runId=%s, durationMs=%d)",
-                    name,
-                    run_id or "-",
-                    duration_ms,
-                )
-
-                # Emit end event
-                if run_id:
-                    await deps.mongo.append_event(
-                        run_id,
-                        type="node",
-                        node=name,
-                        payload={
-                            "node": name,
-                            "status": "end",
-                            "message": f"{name} finished",
-                            "durationMs": duration_ms,
-                        },
-                    )
-
-                return out
-
-            except Exception as e:
-                logger.exception("Node failed: %s", name)
-                duration_ms = int((time.monotonic() - t0) * 1000)
-
-                logger.error(
-                    "Graph node error: %s (runId=%s, durationMs=%d, error=%s)",
-                    name,
-                    run_id or "-",
-                    duration_ms,
-                    str(e) or type(e).__name__,
-                )
-
-                # Emit error event
-                if run_id:
-                    await deps.mongo.append_event(
-                        run_id,
-                        type="node",
-                        node=name,
-                        payload={
-                            "node": name,
-                            "status": "error",
-                            "message": f"{name} error",
-                            "error": str(e),
-                            "durationMs": duration_ms,
-                        },
-                    )
-
                 raise
 
         return _inner
@@ -265,25 +148,36 @@ def build_graph(deps: Any):
     # =========================================================================
     # NODES
     # =========================================================================
-    graph.add_node("ParseRequest", _wrap_node("ParseRequest", parse_request))
+    graph.add_node("ParseRequest", _wrap("ParseRequest", parse_request, pass_deps_kwarg=True))
 
     # Domain agents (execute in parallel)
     graph.add_node(
-        "RestaurantAgent", _wrap_agent("RestaurantAgent", restaurant_agent.execute)
+        "RestaurantAgent",
+        _wrap("RestaurantAgent", restaurant_agent.execute, pass_deps_kwarg=False),
     )
     graph.add_node(
-        "AttractionsAgent", _wrap_agent("AttractionsAgent", attractions_agent.execute)
+        "AttractionsAgent",
+        _wrap("AttractionsAgent", attractions_agent.execute, pass_deps_kwarg=False),
     )
-    graph.add_node("HotelAgent", _wrap_agent("HotelAgent", hotel_agent.execute))
-    graph.add_node("TransportAgent", _wrap_agent("TransportAgent", transport_agent.execute))
+    graph.add_node(
+        "HotelAgent", _wrap("HotelAgent", hotel_agent.execute, pass_deps_kwarg=False)
+    )
+    graph.add_node(
+        "TransportAgent",
+        _wrap("TransportAgent", transport_agent.execute, pass_deps_kwarg=False),
+    )
 
     # Enrichment agent (sequential after all domain agents)
     graph.add_node(
-        "EnrichmentAgent", _wrap_agent("EnrichmentAgent", enrichment_agent.execute)
+        "EnrichmentAgent",
+        _wrap("EnrichmentAgent", enrichment_agent.execute, pass_deps_kwarg=False),
     )
 
     # Aggregation
-    graph.add_node("AggregateResults", _wrap_node("AggregateResults", aggregate_results))
+    graph.add_node(
+        "AggregateResults",
+        _wrap("AggregateResults", aggregate_results, pass_deps_kwarg=True),
+    )
 
     # =========================================================================
     # GRAPH STRUCTURE - MULTI-AGENT PARALLEL EXECUTION
