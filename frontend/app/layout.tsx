@@ -9,7 +9,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body>
-        {/* Spinner animation is now in globals.css or component */}
         {children}
       </body>
     </html>

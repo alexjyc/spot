@@ -44,6 +44,7 @@ export default function Page() {
   const [runId, setRunId] = useState<string | null>(null);
   const [nodes, setNodes] = useState<Record<string, NodeEventPayload>>({});
   const [logs, setLogs] = useState<string[]>([]);
+  const [enrichmentEnabled, setEnrichmentEnabled] = useState(false);
 
   const eventSourceRef = useRef<{ close: () => void } | null>(null);
   const timeoutRef = useRef<number | null>(null);
@@ -121,15 +122,22 @@ export default function Page() {
     };
 
     try {
-      const { runId } = await createRun({ prompt, constraints, options: {} });
+      const { runId } = await createRun({ prompt, constraints, options: { skip_enrichment: !enrichmentEnabled } });
       // ... rest of submit logic
       setRunId(runId);
+      setNodes((prev) => ({
+        ...prev,
+        Queue: { node: "Queue", status: "start", message: "Queued" },
+      }));
 
       const startPollingFallback = () => {
         if (pollIntervalRef.current) return;
         pollIntervalRef.current = window.setInterval(async () => {
           try {
             const run = await getRun(runId);
+            if (run?.progress?.nodes) {
+              setNodes((prev) => ({ ...prev, ...run.progress.nodes }));
+            }
             if (run.status === "done") {
               setResults(run.final_output);
               setLoading(false);
@@ -174,12 +182,15 @@ export default function Page() {
         },
       });
 
+      // Keep polling as a source of truth so progress still updates if SSE stalls.
+      startPollingFallback();
+
       // Timeout after 3 minutes (backend runs can take 120-180s)
       timeoutRef.current = window.setTimeout(() => {
         setError("Request timed out");
         setLoading(false);
         cleanup();
-      }, 180000);
+      }, 150000);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
       setLoading(false);
@@ -188,12 +199,13 @@ export default function Page() {
   };
 
   const orderedNodes = [
+    "Queue",
     "ParseRequest",
     "RestaurantAgent",
     "AttractionsAgent",
     "HotelAgent",
     "TransportAgent",
-    "EnrichmentAgent",
+    ...(enrichmentEnabled ? ["EnrichmentAgent"] : []),
     "AggregateResults",
   ];
 
@@ -339,7 +351,55 @@ export default function Page() {
             </div>
           </div>
 
-          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                cursor: "pointer",
+                userSelect: "none",
+              }}
+            >
+              <div
+                onClick={() => setEnrichmentEnabled((v) => !v)}
+                style={{
+                  width: 44,
+                  height: 24,
+                  borderRadius: 12,
+                  background: enrichmentEnabled
+                    ? "linear-gradient(135deg, #FF4F00 0%, #FF2E00 100%)"
+                    : "#d2d2d7",
+                  position: "relative",
+                  transition: "background 0.2s ease",
+                  flexShrink: 0,
+                }}
+              >
+                <div
+                  style={{
+                    width: 20,
+                    height: 20,
+                    borderRadius: "50%",
+                    background: "#ffffff",
+                    position: "absolute",
+                    top: 2,
+                    left: enrichmentEnabled ? 22 : 2,
+                    transition: "left 0.2s ease",
+                    boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+                  }}
+                />
+              </div>
+              <span
+                style={{
+                  fontSize: "14px",
+                  fontWeight: 500,
+                  color: "#86868b",
+                }}
+              >
+                Deep enrichment{" "}
+                <span style={{ fontSize: "12px", fontWeight: 400 }}>(prices, hours, addresses)</span>
+              </span>
+            </label>
             <button type="submit" disabled={loading} style={buttonStyle(loading)}>
               {loading ? (
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>

@@ -17,9 +17,7 @@ class SpotOnState(TypedDict, total=False):
     #   "origin": "Tokyo (NRT)",
     #   "destination": "Seoul (ICN)",
     #   "departing_date": "2026-03-15",
-    #   "returning_date": "2026-03-18" | None,
-    #   "interests": ["history", "food"],
-    #   "budget": "moderate"
+    #   "returning_date": "2026-03-18" | None
     # }
 
     # Domain agent outputs
@@ -31,6 +29,9 @@ class SpotOnState(TypedDict, total=False):
 
     # Enrichment
     enriched_data: dict[str, dict[str, Any]]  # item_id -> {price, hours, address, phone}
+
+    # Options
+    skip_enrichment: bool
 
     # Metadata
     agent_statuses: Annotated[

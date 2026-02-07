@@ -138,8 +138,9 @@ class TransportAgent(BaseAgent):
         ]
 
         # Parallel search
+        # 5 -> 3
         search_tasks = [
-            self.deps.tavily.search(q, max_results=5) for q in queries
+            self.deps.tavily.search(q, max_results=3) for q in queries
         ]
         search_results = await asyncio.gather(*search_tasks, return_exceptions=True)
 

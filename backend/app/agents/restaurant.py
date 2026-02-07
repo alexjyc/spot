@@ -137,8 +137,9 @@ class RestaurantAgent(BaseAgent):
         Returns:
             List of Tavily search results
         """
+        # 6 -> 3
         search_tasks = [
-            self.deps.tavily.search(q, max_results=6) for q in queries
+            self.deps.tavily.search(q, max_results=3) for q in queries
         ]
         return await asyncio.gather(*search_tasks, return_exceptions=True)
 

@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 class LLMService:
     """Wrapper around ChatOpenAI with structured output support."""
 
-    def __init__(self, api_key: str, model: str, *, timeout_seconds: float = 120.0) -> None:
+    def __init__(self, api_key: str, model: str, *, timeout_seconds: float = 60.0) -> None:
         if not api_key:
             raise ValueError("OPENAI_API_KEY is required")
         self.timeout_seconds = max(1.0, float(timeout_seconds))
@@ -44,18 +44,3 @@ class LLMService:
             logger.debug(
                 "LLM structured output finished in %.0fms", (time.monotonic() - t0) * 1000
             )
-
-    async def text(self, messages: list[BaseMessage]) -> str:
-        """Get plain text response from LLM."""
-        t0 = time.monotonic()
-        try:
-            resp = await asyncio.wait_for(
-                self.chat.ainvoke(messages), timeout=self.timeout_seconds
-            )
-        except asyncio.TimeoutError as e:
-            raise TimeoutError(
-                f"OpenAI request timed out after {self.timeout_seconds:.0f}s"
-            ) from e
-        finally:
-            logger.debug("LLM text finished in %.0fms", (time.monotonic() - t0) * 1000)
-        return str(resp.content)

@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 
 export const dynamic = "force-dynamic";
-export const runtime = "edge"; // Use edge runtime for better streaming support
+export const runtime = "nodejs";
 
 export async function GET(
     request: NextRequest,
@@ -10,7 +10,8 @@ export async function GET(
     const { runId } = await context.params;
 
     // Fetch SSE stream from backend
-    const backendUrl = `http://localhost:8000/api/runs/${runId}/events`;
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    const backendUrl = `${baseUrl}/api/runs/${runId}/events`;
 
     try {
         const response = await fetch(backendUrl, {
@@ -32,31 +33,7 @@ export async function GET(
             return new Response("No response body", { status: 500 });
         }
 
-        // Create a TransformStream to pass through the SSE data
-        const { readable, writable } = new TransformStream();
-        const writer = writable.getWriter();
-        const reader = response.body.getReader();
-
-        // Stream data from backend to client
-        (async () => {
-            try {
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-                    await writer.write(value);
-                }
-            } catch {
-                // Connection closed
-            } finally {
-                try {
-                    await writer.close();
-                } catch {
-                    // Already closed
-                }
-            }
-        })();
-
-        return new Response(readable, {
+        return new Response(response.body, {
             status: 200,
             headers: {
                 "Content-Type": "text/event-stream",

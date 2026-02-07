@@ -90,6 +90,18 @@ class MongoService:
         }
         await self.run_events.insert_one(doc)
 
+    async def set_node_progress(
+        self,
+        run_id: str,
+        *,
+        node: str,
+        payload: dict[str, Any],
+    ) -> None:
+        if "." in node or node.startswith("$"):
+            raise ValueError("Invalid node name")
+        patch: dict[str, Any] = {f"progress.nodes.{node}": payload, "updatedAt": utc_now()}
+        await self.runs.update_one({"_id": run_id}, {"$set": patch})
+
     async def add_artifact(
         self,
         run_id: str,

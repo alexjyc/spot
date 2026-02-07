@@ -73,6 +73,7 @@ def build_graph(deps: Any):
         if error:
             payload["error"] = error
         await deps.mongo.append_event(run_id, type="node", node=node, payload=payload)
+        await deps.mongo.set_node_progress(run_id, node=node, payload=payload)
 
     def _wrap(
         name: str,

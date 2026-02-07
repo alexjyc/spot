@@ -6,6 +6,19 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, model_validator
 
 RunStatus = Literal["queued", "running", "done", "error"]
+NodeStatus = Literal["start", "end", "error"]
+
+
+class NodeEventPayload(BaseModel):
+    node: str
+    status: NodeStatus
+    message: str | None = None
+    durationMs: int | None = None
+    error: str | None = None
+
+
+class RunProgress(BaseModel):
+    nodes: dict[str, NodeEventPayload] = Field(default_factory=dict)
 
 
 class RunCreateRequest(BaseModel):
@@ -40,6 +53,7 @@ class RunGetResponse(BaseModel):
     runId: str
     status: RunStatus
     updatedAt: datetime
+    progress: RunProgress | None = None
     constraints: dict[str, Any] | None = None
     final_output: dict[str, Any] | None = None
     warnings: list[str] = Field(default_factory=list)
@@ -61,4 +75,3 @@ class Artifact(BaseModel):
     type: str
     payload: dict[str, Any]
     version: int = 1
-

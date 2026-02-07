@@ -7,6 +7,7 @@ export type RunOptions = {
   avoid?: string[];
   must_do?: string[];
   special_instructions?: string;
+  skip_enrichment?: boolean;
 };
 
 export type CreateRunRequest = {
@@ -15,8 +16,17 @@ export type CreateRunRequest = {
   options?: RunOptions;
 };
 
+const getBaseUrl = () => {
+  if (typeof window !== "undefined") return ""; // Browser: use relative path (proxy)
+  if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL;
+  return "http://localhost:8000"; // Fallback for SSG/SSR
+};
+
 async function apiFetch(path: string, init?: RequestInit) {
-  const res = await fetch(path, {
+  const baseUrl = getBaseUrl();
+  const url = path.startsWith("http") ? path : `${baseUrl}${path}`;
+
+  const res = await fetch(url, {
     ...init,
     headers: { "content-type": "application/json", ...(init?.headers || {}) },
     cache: "no-store",

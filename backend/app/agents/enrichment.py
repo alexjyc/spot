@@ -20,7 +20,8 @@ class EnrichmentAgent(BaseAgent):
     """
 
     TIMEOUT_SECONDS = 45
-    MAX_URLS_PER_BATCH = 20
+    # MAX_URLS_PER_BATCH = 20
+    MAX_URLS_PER_BATCH = 5
 
     async def execute(self, state: dict[str, Any]) -> dict[str, Any]:
         """Execute enrichment workflow.
@@ -31,6 +32,18 @@ class EnrichmentAgent(BaseAgent):
         Returns:
             Partial state update with enriched_data dict
         """
+        # Short-circuit if enrichment is disabled
+        if state.get("skip_enrichment"):
+            self.logger.info(
+                "EnrichmentAgent: skipped (skip_enrichment=True)",
+                extra={"run_id": state.get("runId")},
+            )
+            return {
+                "enriched_data": {},
+                "agent_statuses": {self.agent_id: "skipped"},
+                "warnings": [],
+            }
+
         try:
             # Collect all URLs from domain agent results
             items = self._collect_items(state)
