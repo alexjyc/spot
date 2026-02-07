@@ -1,37 +1,14 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { format, isBefore, startOfDay } from "date-fns";
-import { Search, MapPin, Target, Calendar as CalendarIcon, AlertCircle } from "lucide-react";
+import { Search, MapPin, Target } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import ResultsView from "../components/ResultsView";
-import { createRun, getRun } from "../lib/api";
+import { createRun, getRun, cancelRun } from "../lib/api";
 import { subscribeToRunEvents } from "../lib/sse";
 import { DatePicker } from "../components/ui/DatePicker";
 import { Combobox } from "../components/ui/Combobox";
-
-type SpotOnResults = {
-  restaurants?: any[];
-  travel_spots?: any[];
-  hotels?: any[];
-  car_rentals?: any[];
-  flights?: any[];
-  constraints?: Record<string, any>;
-};
-
-type NodeStatus = "start" | "end" | "error";
-
-type NodeEventPayload = {
-  node: string;
-  status: NodeStatus;
-  message?: string;
-  durationMs?: number;
-  error?: string;
-};
-
-type ArtifactEventPayload = {
-  type: string;
-  payload: Record<string, any>;
-};
+import type { SpotOnResults, NodeEventPayload, ArtifactEventPayload } from "../types/api";
 
 export default function Page() {
   const [origin, setOrigin] = useState("");
@@ -49,8 +26,12 @@ export default function Page() {
   const eventSourceRef = useRef<{ close: () => void } | null>(null);
   const timeoutRef = useRef<number | null>(null);
   const pollIntervalRef = useRef<number | null>(null);
+  const runIdRef = useRef<string | null>(null);
 
-  const cleanup = () => {
+  const cleanup = (cancel = false) => {
+    if (cancel && runIdRef.current) {
+      cancelRun(runIdRef.current);
+    }
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
       eventSourceRef.current = null;
@@ -66,7 +47,18 @@ export default function Page() {
   };
 
   useEffect(() => {
-    return () => cleanup();
+    const handleBeforeUnload = () => {
+      if (runIdRef.current) {
+        navigator.sendBeacon(`/api/runs/${runIdRef.current}/cancel`);
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    window.addEventListener("pagehide", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      window.removeEventListener("pagehide", handleBeforeUnload);
+      cleanup(false);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -74,7 +66,7 @@ export default function Page() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    cleanup();
+    cleanup(true);
 
     // Reset errors
     setError(null);
@@ -123,8 +115,8 @@ export default function Page() {
 
     try {
       const { runId } = await createRun({ prompt, constraints, options: { skip_enrichment: !enrichmentEnabled } });
-      // ... rest of submit logic
       setRunId(runId);
+      runIdRef.current = runId;
       setNodes((prev) => ({
         ...prev,
         Queue: { node: "Queue", status: "start", message: "Queued" },
@@ -136,15 +128,22 @@ export default function Page() {
           try {
             const run = await getRun(runId);
             if (run?.progress?.nodes) {
-              setNodes((prev) => ({ ...prev, ...run.progress.nodes }));
+              setNodes((prev) => ({ ...prev, ...run.progress!.nodes }));
             }
             if (run.status === "done") {
-              setResults(run.final_output);
+              setResults(run.final_output ?? null);
               setLoading(false);
+              runIdRef.current = null;
               cleanup();
             } else if (run.status === "error") {
               setError(run.error?.message || "Run failed");
               setLoading(false);
+              runIdRef.current = null;
+              cleanup();
+            } else if (run.status === "cancelled") {
+              setError("Run was cancelled");
+              setLoading(false);
+              runIdRef.current = null;
               cleanup();
             }
           } catch {
@@ -163,15 +162,16 @@ export default function Page() {
         },
         onArtifact: (data: ArtifactEventPayload) => {
           if (data?.type === "final_output" && data.payload?.final_output) {
-            setResults(data.payload.final_output);
+            setResults(data.payload.final_output as SpotOnResults);
             setLoading(false);
+            runIdRef.current = null;
             cleanup();
             return;
           }
           if (data?.type === "constraints" && data.payload?.constraints) {
             setResults((prev) => ({
               ...(prev || {}),
-              constraints: data.payload.constraints,
+              constraints: data.payload.constraints as Record<string, unknown>,
             }));
           }
         },
@@ -181,9 +181,6 @@ export default function Page() {
           startPollingFallback();
         },
       });
-
-      // Keep polling as a source of truth so progress still updates if SSE stalls.
-      startPollingFallback();
 
       // Timeout after 3 minutes (backend runs can take 120-180s)
       timeoutRef.current = window.setTimeout(() => {
@@ -543,7 +540,7 @@ export default function Page() {
           </div>
         )}
 
-        {results && <ResultsView results={results} />}
+        {results && <ResultsView results={results} runId={runId} />}
       </div>
     </main>
   );
@@ -591,30 +588,6 @@ const labelStyle: React.CSSProperties = {
   letterSpacing: "0.04em",
   textTransform: "uppercase",
   marginLeft: "4px",
-};
-
-const inputWrapperStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 12,
-  background: "#ffffff",
-  border: "1px solid #e5e5ea",
-  borderRadius: "14px",
-  padding: "0 16px",
-  transition: "all 0.2s ease",
-  height: "54px", // Fixed height to match datepicker
-};
-
-const inputStyle: React.CSSProperties = {
-  flex: 1,
-  padding: "16px 0",
-  fontSize: "16px",
-  border: "none",
-  outline: "none",
-  fontFamily: "inherit",
-  backgroundColor: "transparent",
-  fontWeight: 500,
-  color: "#1d1d1f",
 };
 
 const buttonStyle = (disabled: boolean): React.CSSProperties => ({

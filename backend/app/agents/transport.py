@@ -9,7 +9,6 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.agents.base import BaseAgent
 from app.schemas.spot_on import CarRentalOutput, FlightOutput, CarRentalList, FlightList
-from app.utils.dedup import canonicalize_url
 
 
 class TransportAgent(BaseAgent):
@@ -19,53 +18,40 @@ class TransportAgent(BaseAgent):
     Uses Tavily for web search and LLM for normalization.
     """
 
-    TIMEOUT_SECONDS = 40  # Longer timeout due to two sub-searches
+    TIMEOUT_SECONDS = 40
     CAR_RESULTS = 3
     FLIGHT_RESULTS = 3
 
     async def execute(self, state: dict[str, Any]) -> dict[str, Any]:
-        """Execute transport search workflow (parallel car + flight searches).
-
-        Args:
-            state: Graph state containing constraints (origin, destination, dates)
-
-        Returns:
-            Partial state update with car_rentals and flights lists
-        """
         try:
             constraints = state.get("constraints", {})
 
-            # Validate required fields
             destination = constraints.get("destination")
             if not destination or not isinstance(destination, str):
                 self.logger.warning("Invalid or missing destination in constraints")
                 return self._failed_result("Missing or invalid destination")
 
-            # Parallel execution of car and flight searches
             self.logger.info(
                 "TransportAgent starting parallel car + flight searches",
                 extra={"run_id": state.get("runId")},
             )
 
-            car_task = self._search_car_rentals(constraints)
-            flight_task = self._search_flights(constraints)
-
             car_results, flight_results = await asyncio.gather(
-                car_task, flight_task, return_exceptions=True
+                self._search_car_rentals(constraints),
+                self._search_flights(constraints),
+                return_exceptions=True,
             )
 
-            # Handle results (don't fail if one sub-search fails)
             cars = [] if isinstance(car_results, Exception) else car_results
             flights = [] if isinstance(flight_results, Exception) else flight_results
 
-            # Determine status
             if isinstance(car_results, Exception) and isinstance(
                 flight_results, Exception
             ):
                 self.logger.error("Both car and flight searches failed")
                 return self._failed_result("Both transport searches failed")
 
-            warnings = []
+            warnings: list[str] = []
             status = "completed"
 
             if isinstance(car_results, Exception):
@@ -79,7 +65,7 @@ class TransportAgent(BaseAgent):
                 self.logger.warning(f"Flight search failed: {flight_results}")
 
             self.logger.info(
-                f"TransportAgent completed",
+                "TransportAgent completed",
                 extra={
                     "run_id": state.get("runId"),
                     "car_count": len(cars),
@@ -88,7 +74,7 @@ class TransportAgent(BaseAgent):
                 },
             )
 
-            result = {
+            result: dict[str, Any] = {
                 "car_rentals": cars,
                 "flights": flights,
                 "agent_statuses": {self.agent_id: status},
@@ -110,17 +96,6 @@ class TransportAgent(BaseAgent):
     async def _search_car_rentals(
         self, constraints: dict[str, Any]
     ) -> list[dict[str, Any]]:
-        """Search for car rental options.
-
-        Args:
-            constraints: User constraints (destination, dates, etc.)
-
-        Returns:
-            List of car rental dicts (serialized CarRentalOutput)
-
-        Raises:
-            Exception if search fails
-        """
         destination = constraints.get("destination")
         departing_date = constraints.get("departing_date")
 
@@ -128,7 +103,7 @@ class TransportAgent(BaseAgent):
             self.logger.warning("No destination for car rentals")
             return []
 
-        city = destination.split("(")[0].strip()
+        city = self._extract_city(destination)
         date_str = f" {departing_date}" if departing_date else " 2026"
 
         queries = [
@@ -137,57 +112,22 @@ class TransportAgent(BaseAgent):
             f"best car rental deals {city}",
         ]
 
-        # Parallel search
-        # 5 -> 3
-        search_tasks = [
-            self.deps.tavily.search(q, max_results=3) for q in queries
-        ]
-        search_results = await asyncio.gather(*search_tasks, return_exceptions=True)
-
-        # Flatten results
-        all_items = []
-        for result_set in search_results:
-            if isinstance(result_set, Exception):
-                continue
-            all_items.extend(result_set.get("results", []))
+        search_results = await self._parallel_search(queries)
+        all_items = self._flatten_search_results(search_results)
 
         if not all_items:
             self.logger.warning("No car rental search results")
             return []
 
-        # Deduplicate by URL
-        seen_urls = set()
-        unique_items = []
-        for item in all_items:
-            url = canonicalize_url(item.get("url", ""))
-            if url and url not in seen_urls:
-                seen_urls.add(url)
-                unique_items.append(item)
+        unique_items = self._dedup_by_url(all_items)
+        sorted_items = self._top_by_score(unique_items, n=15)
 
-        # Take top 15 by score
-        sorted_items = sorted(
-            unique_items, key=lambda x: x.get("score", 0), reverse=True
-        )[:15]
-
-        # LLM normalization
         cars = await self._normalize_cars_with_llm(sorted_items, constraints)
-
         return [c.model_dump() for c in cars[: self.CAR_RESULTS]]
 
     async def _search_flights(
         self, constraints: dict[str, Any]
     ) -> list[dict[str, Any]]:
-        """Search for flight options.
-
-        Args:
-            constraints: User constraints (origin, destination, dates, etc.)
-
-        Returns:
-            List of flight dicts (serialized FlightOutput)
-
-        Raises:
-            Exception if search fails
-        """
         origin = constraints.get("origin")
         destination = constraints.get("destination")
         departing_date = constraints.get("departing_date")
@@ -197,10 +137,7 @@ class TransportAgent(BaseAgent):
             self.logger.warning("Missing origin or destination for flights")
             return []
 
-        # Determine trip type
         trip_type = "round-trip" if returning_date else "one-way"
-
-        # Build queries
         date_str = f" {departing_date}" if departing_date else ""
         return_str = f" return {returning_date}" if returning_date else ""
 
@@ -210,66 +147,26 @@ class TransportAgent(BaseAgent):
             f"cheap flights {origin} {destination}{date_str}",
         ]
 
-        # Parallel search
-        search_tasks = [
-            self.deps.tavily.search(q, max_results=5) for q in queries
-        ]
-        search_results = await asyncio.gather(*search_tasks, return_exceptions=True)
-
-        # Flatten results
-        all_items = []
-        for result_set in search_results:
-            if isinstance(result_set, Exception):
-                continue
-            all_items.extend(result_set.get("results", []))
+        search_results = await self._parallel_search(queries, max_results=5)
+        all_items = self._flatten_search_results(search_results)
 
         if not all_items:
             self.logger.warning("No flight search results")
             return []
 
-        # Deduplicate by URL
-        seen_urls = set()
-        unique_items = []
-        for item in all_items:
-            url = canonicalize_url(item.get("url", ""))
-            if url and url not in seen_urls:
-                seen_urls.add(url)
-                unique_items.append(item)
+        unique_items = self._dedup_by_url(all_items)
+        sorted_items = self._top_by_score(unique_items, n=15)
 
-        # Take top 15 by score
-        sorted_items = sorted(
-            unique_items, key=lambda x: x.get("score", 0), reverse=True
-        )[:15]
-
-        # LLM normalization
         flights = await self._normalize_flights_with_llm(sorted_items, constraints)
-
         return [f.model_dump() for f in flights[: self.FLIGHT_RESULTS]]
 
     async def _normalize_cars_with_llm(
         self, items: list[dict[str, Any]], constraints: dict[str, Any]
     ) -> list[CarRentalOutput]:
-        """Use LLM to parse car rental search results.
-
-        Args:
-            items: Deduplicated Tavily search results
-            constraints: User constraints
-
-        Returns:
-            List of CarRentalOutput objects
-        """
         if not items:
             return []
 
-        search_text = "\n\n".join(
-            [
-                f"Title: {item.get('title', 'N/A')}\n"
-                f"URL: {item.get('url', 'N/A')}\n"
-                f"Content: {item.get('content', 'N/A')[:400]}"
-                for item in items
-            ]
-        )
-
+        search_text = self._format_search_text(items, content_limit=400)
         destination = constraints.get("destination", "the destination")
         departing_date = constraints.get("departing_date", "")
 
@@ -296,7 +193,6 @@ Return results as a JSON array. Generate unique IDs using format "car_{{destinat
         try:
             result = await self.deps.llm.structured(messages, CarRentalList)
             return result.cars
-
         except Exception as e:
             self.logger.error(f"Car rental LLM normalization failed: {e}", exc_info=True)
             return []
@@ -304,27 +200,10 @@ Return results as a JSON array. Generate unique IDs using format "car_{{destinat
     async def _normalize_flights_with_llm(
         self, items: list[dict[str, Any]], constraints: dict[str, Any]
     ) -> list[FlightOutput]:
-        """Use LLM to parse flight search results.
-
-        Args:
-            items: Deduplicated Tavily search results
-            constraints: User constraints
-
-        Returns:
-            List of FlightOutput objects
-        """
         if not items:
             return []
 
-        search_text = "\n\n".join(
-            [
-                f"Title: {item.get('title', 'N/A')}\n"
-                f"URL: {item.get('url', 'N/A')}\n"
-                f"Content: {item.get('content', 'N/A')[:400]}"
-                for item in items
-            ]
-        )
-
+        search_text = self._format_search_text(items, content_limit=400)
         origin = constraints.get("origin", "")
         destination = constraints.get("destination", "")
         departing_date = constraints.get("departing_date", "")
@@ -357,7 +236,6 @@ Return results as a JSON array. Generate unique IDs using format "flight_{{origi
         try:
             result = await self.deps.llm.structured(messages, FlightList)
             return result.flights
-
         except Exception as e:
             self.logger.error(f"Flight LLM normalization failed: {e}", exc_info=True)
             return []

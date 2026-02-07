@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { backendUrl } from "../../../../../lib/proxy";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -9,12 +10,8 @@ export async function GET(
 ) {
     const { runId } = await context.params;
 
-    // Fetch SSE stream from backend
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-    const backendUrl = `${baseUrl}/api/runs/${runId}/events`;
-
     try {
-        const response = await fetch(backendUrl, {
+        const response = await fetch(backendUrl(`/api/runs/${runId}/events`), {
             method: "GET",
             headers: {
                 Accept: "text/event-stream",

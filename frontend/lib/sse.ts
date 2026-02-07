@@ -1,8 +1,10 @@
+import type { NodeEventPayload, ArtifactEventPayload, LogEventPayload } from "../types/api";
+
 type Handlers = {
-  onNode: (data: any) => void;
-  onArtifact: (data: any) => void;
-  onLog: (data: any) => void;
-  onError: (err: any) => void;
+  onNode: (data: NodeEventPayload) => void;
+  onArtifact: (data: ArtifactEventPayload) => void;
+  onLog: (data: LogEventPayload) => void;
+  onError: (err: unknown) => void;
 };
 
 export function subscribeToRunEvents(runId: string, handlers: Handlers) {
@@ -35,4 +37,3 @@ export function subscribeToRunEvents(runId: string, handlers: Handlers) {
     },
   };
 }
-

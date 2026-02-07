@@ -7,55 +7,29 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Any
 
+from app.utils.dedup import canonicalize_url, normalize_name
+
 
 class BaseAgent(ABC):
     """Abstract base class for all agents in the multi-agent system.
 
-    Provides common functionality like logging, timeout handling, and
-    standardized error responses.
+    Provides common functionality like logging, timeout handling,
+    standardized error responses, and shared search helpers.
     """
 
     def __init__(self, agent_id: str, deps: Any) -> None:
-        """Initialize base agent.
-
-        Args:
-            agent_id: Unique identifier for this agent (e.g., "restaurant_agent")
-            deps: Dependency container with services (tavily, llm, mongo, etc.)
-        """
         self.agent_id = agent_id
         self.deps = deps
         self.logger = logging.getLogger(f"agent.{agent_id}")
 
     @abstractmethod
     async def execute(self, state: dict[str, Any]) -> dict[str, Any]:
-        """Execute agent logic and return partial state update.
-
-        Args:
-            state: Current graph state
-
-        Returns:
-            Dictionary with partial state updates. Should include:
-            - Agent-specific results (e.g., "restaurants" key for RestaurantAgent)
-            - "agent_statuses" dict with self.agent_id -> "completed"|"failed"|"partial"|"skipped"
-            - "warnings" list if there were non-fatal issues
-
-        Note:
-            Should NOT raise exceptions. Return error status instead.
-        """
+        """Execute agent logic and return partial state update."""
         pass
 
     async def with_timeout(
         self, coro: Any, timeout_seconds: float
     ) -> Any | None:
-        """Execute coroutine with timeout.
-
-        Args:
-            coro: Coroutine to execute
-            timeout_seconds: Maximum execution time
-
-        Returns:
-            Coroutine result, or None if timeout occurred
-        """
         try:
             return await asyncio.wait_for(coro, timeout=timeout_seconds)
         except asyncio.TimeoutError:
@@ -67,18 +41,84 @@ class BaseAgent(ABC):
     def _failed_result(
         self, error: str, warnings: list[str] | None = None
     ) -> dict[str, Any]:
-        """Helper to return standardized failure response.
-
-        Args:
-            error: Error message to log
-            warnings: Optional list of warning messages
-
-        Returns:
-            Dictionary with agent_statuses set to "failed" and warnings list
-        """
         warning_msgs = warnings or [f"{self.agent_id} failed: {error}"]
         return {
             "agent_statuses": {self.agent_id: "failed"},
             "warnings": warning_msgs,
         }
+
+    # -- Shared helpers used by domain agents --
+
+    @staticmethod
+    def _extract_city(destination: str) -> str:
+        """Extract clean city name, stripping airport codes like '(JFK)'."""
+        return destination.split("(")[0].strip()
+
+    async def _parallel_search(
+        self, queries: list[str], max_results: int = 3
+    ) -> list[dict[str, Any]]:
+        """Execute multiple Tavily searches in parallel."""
+        tasks = [self.deps.tavily.search(q, max_results=max_results) for q in queries]
+        return await asyncio.gather(*tasks, return_exceptions=True)
+
+    @staticmethod
+    def _dedup_by_url(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Deduplicate search results by canonicalized URL."""
+        seen: set[str] = set()
+        unique: list[dict[str, Any]] = []
+        for item in items:
+            url = canonicalize_url(item.get("url", ""))
+            if url and url not in seen:
+                seen.add(url)
+                unique.append(item)
+        return unique
+
+    @staticmethod
+    def _dedup_by_name_and_url(items: list[Any], top_n: int) -> list[Any]:
+        """Deduplicate Pydantic model results by name and URL, return top N."""
+        seen_names: set[str] = set()
+        seen_urls: set[str] = set()
+        unique: list[Any] = []
+        for item in items:
+            norm_name = normalize_name(item.name)
+            canon_url = canonicalize_url(item.url)
+            if norm_name in seen_names or canon_url in seen_urls:
+                continue
+            seen_names.add(norm_name)
+            seen_urls.add(canon_url)
+            unique.append(item)
+        return unique[:top_n]
+
+    @staticmethod
+    def _build_interest_query(interests: list[str], suffix: str, city: str) -> str | None:
+        """Build an interest-based search query, or None if no interests."""
+        if not interests:
+            return None
+        interest_str = " ".join(interests[:2])
+        return f"{interest_str} {suffix} in {city}"
+
+    @staticmethod
+    def _flatten_search_results(search_results: list[Any]) -> list[dict[str, Any]]:
+        """Flatten parallel search results, skipping exceptions."""
+        items: list[dict[str, Any]] = []
+        for result_set in search_results:
+            if isinstance(result_set, Exception):
+                continue
+            items.extend(result_set.get("results", []))
+        return items
+
+    @staticmethod
+    def _top_by_score(items: list[dict[str, Any]], n: int = 10) -> list[dict[str, Any]]:
+        """Sort items by score descending and take top N."""
+        return sorted(items, key=lambda x: x.get("score", 0), reverse=True)[:n]
+
+    @staticmethod
+    def _format_search_text(items: list[dict[str, Any]], content_limit: int = 500) -> str:
+        """Format search result items into text for LLM input."""
+        return "\n\n".join(
+            f"Title: {item.get('title', 'N/A')}\n"
+            f"URL: {item.get('url', 'N/A')}\n"
+            f"Content: {item.get('content', 'N/A')[:content_limit]}"
+            for item in items
+        )
 

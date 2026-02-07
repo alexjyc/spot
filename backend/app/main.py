@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import collections
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -12,6 +13,8 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pymongo.errors import PyMongoError
+
+from app.services.export import generate_pdf, generate_xlsx
 
 from app.config import Settings, get_settings
 from app.db.mongo import MongoService
@@ -157,6 +160,21 @@ def create_app() -> FastAPI:
                 },
             )
             await mongo.append_event(run_id, type="log", payload={"message": "Run completed"})
+        except asyncio.CancelledError:
+            logging.getLogger(__name__).info("Run cancelled: %s", run_id)
+            if mongo:
+                await mongo.update_run(
+                    run_id,
+                    {
+                        "status": "cancelled",
+                        "durationMs": int((time.monotonic() - t0) * 1000),
+                        "error": {"message": "Run cancelled"},
+                    },
+                )
+                await mongo.append_event(
+                    run_id, type="log", payload={"message": "Run cancelled"}
+                )
+            raise
         except Exception as e:
             logging.getLogger(__name__).exception("Run failed: %s", run_id)
             if mongo:
@@ -171,6 +189,8 @@ def create_app() -> FastAPI:
                 await mongo.append_event(
                     run_id, type="log", payload={"message": "Run failed", "error": str(e)}
                 )
+        finally:
+            app.state.background_tasks.pop(run_id, None)
 
     app.add_middleware(
         CORSMiddleware,
@@ -248,7 +268,7 @@ def create_app() -> FastAPI:
         if not mongo:
             raise HTTPException(status_code=500, detail="MongoDB is not configured")
 
-        terminal_messages = {"Run completed", "Run failed"}
+        terminal_messages = {"Run completed", "Run failed", "Run cancelled"}
 
         def _format_event(ev: dict[str, Any]) -> bytes:
             etype = ev.get("type") or "log"
@@ -260,7 +280,7 @@ def create_app() -> FastAPI:
             return sse_event("log", payload)
 
         async def _gen():
-            seen_ids: set[Any] = set()
+            seen_ids: collections.deque[Any] = collections.deque(maxlen=500)
             idle = 0
 
             try:
@@ -292,7 +312,7 @@ def create_app() -> FastAPI:
                             cursor_ts = ev["ts"]
                             cursor_id = ev.get("_id")
                             if cursor_id is not None:
-                                seen_ids.add(cursor_id)
+                                seen_ids.append(cursor_id)
                             payload = ev.get("payload") or {}
                             if ev.get("type") == "log" and payload.get("message") in terminal_messages:
                                 saw_terminal = True
@@ -310,7 +330,7 @@ def create_app() -> FastAPI:
                             idle += 1
                             if idle >= 5:
                                 run = await mongo.get_run(runId)
-                                if run and run.get("status") in {"done", "error"}:
+                                if run and run.get("status") in {"done", "error", "cancelled"}:
                                     return
                             continue
 
@@ -320,7 +340,7 @@ def create_app() -> FastAPI:
                         if ev_id is not None and ev_id in seen_ids:
                             continue
                         if ev_id is not None:
-                            seen_ids.add(ev_id)
+                            seen_ids.append(ev_id)
 
                         payload = doc.get("payload") or {}
                         if doc.get("type") == "log" and payload.get("message") in terminal_messages:
@@ -350,7 +370,7 @@ def create_app() -> FastAPI:
                         else:
                             idle += 1
                             run = await mongo.get_run(runId)
-                            if run and run.get("status") in {"done", "error"} and idle >= 6:
+                            if run and run.get("status") in {"done", "error", "cancelled"} and idle >= 5:
                                 return
                             await asyncio.sleep(0.5)
                 except asyncio.CancelledError:
@@ -364,6 +384,53 @@ def create_app() -> FastAPI:
                 "Connection": "keep-alive",
                 "X-Accel-Buffering": "no",
             },
+        )
+
+    @app.post("/api/runs/{runId}/cancel")
+    async def cancel_run(runId: str, request: Request):
+        task = request.app.state.background_tasks.get(runId)
+        if task and not task.done():
+            task.cancel()
+        return {"ok": True}
+
+    @app.get("/api/runs/{runId}/export/pdf")
+    async def export_pdf(runId: str, request: Request):
+        deps = getattr(request.app.state, "deps", None)
+        mongo = getattr(deps, "mongo", None) if deps else None
+        if not mongo:
+            raise HTTPException(status_code=500, detail="MongoDB is not configured")
+        doc = await mongo.get_run(runId)
+        if not doc:
+            raise HTTPException(status_code=404, detail="Run not found")
+        if doc["status"] != "done":
+            raise HTTPException(status_code=400, detail="Run is not completed")
+        final_output = doc.get("final_output") or {}
+        constraints = doc.get("constraints") or {}
+        pdf_bytes = generate_pdf(final_output, constraints)
+        return StreamingResponse(
+            iter([pdf_bytes]),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="spot-on-{runId}.pdf"'},
+        )
+
+    @app.get("/api/runs/{runId}/export/xlsx")
+    async def export_xlsx(runId: str, request: Request):
+        deps = getattr(request.app.state, "deps", None)
+        mongo = getattr(deps, "mongo", None) if deps else None
+        if not mongo:
+            raise HTTPException(status_code=500, detail="MongoDB is not configured")
+        doc = await mongo.get_run(runId)
+        if not doc:
+            raise HTTPException(status_code=404, detail="Run not found")
+        if doc["status"] != "done":
+            raise HTTPException(status_code=400, detail="Run is not completed")
+        final_output = doc.get("final_output") or {}
+        constraints = doc.get("constraints") or {}
+        xlsx_bytes = generate_xlsx(final_output, constraints)
+        return StreamingResponse(
+            iter([xlsx_bytes]),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="spot-on-{runId}.xlsx"'},
         )
 
     return app

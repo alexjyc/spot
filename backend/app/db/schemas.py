@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-RunStatus = Literal["queued", "running", "done", "error"]
+RunStatus = Literal["queued", "running", "done", "error", "cancelled"]
 NodeStatus = Literal["start", "end", "error"]
 
 

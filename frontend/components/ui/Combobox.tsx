@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Check, ChevronDown, Search as SearchIcon } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 export interface ComboboxProps {

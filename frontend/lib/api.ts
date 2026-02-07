@@ -1,3 +1,5 @@
+import type { RunResponse } from "../types/api";
+
 export type RunOptions = {
   country?: string;
   days?: number;
@@ -43,8 +45,20 @@ export async function createRun(body: CreateRunRequest): Promise<{ runId: string
   return await res.json();
 }
 
-export async function getRun(runId: string): Promise<any> {
+export async function getRun(runId: string): Promise<RunResponse> {
   const res = await apiFetch(`/api/runs/${runId}`, { method: "GET" });
   return await res.json();
+}
+
+export async function cancelRun(runId: string): Promise<void> {
+  try {
+    await apiFetch(`/api/runs/${runId}/cancel`, { method: "POST" });
+  } catch {
+    /* best-effort */
+  }
+}
+
+export function getExportUrl(runId: string, format: "pdf" | "xlsx"): string {
+  return `/api/runs/${runId}/export/${format}`;
 }
 

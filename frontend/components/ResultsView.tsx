@@ -9,20 +9,19 @@ import {
   Phone,
   CreditCard,
   ChevronRight,
-  Star
+  Star,
+  FileText,
+  Table,
 } from "lucide-react";
+import { getExportUrl } from "../lib/api";
+import type { SpotOnResults, Restaurant, TravelSpot, Hotel, CarRental, Flight } from "../types/api";
 
 interface ResultsViewProps {
-  results: {
-    restaurants?: any[];
-    travel_spots?: any[];
-    hotels?: any[];
-    car_rentals?: any[];
-    flights?: any[];
-  };
+  results: SpotOnResults;
+  runId?: string | null;
 }
 
-export default function ResultsView({ results }: ResultsViewProps) {
+export default function ResultsView({ results, runId }: ResultsViewProps) {
   const {
     restaurants = [],
     travel_spots = [],
@@ -33,6 +32,33 @@ export default function ResultsView({ results }: ResultsViewProps) {
 
   return (
     <div style={{ display: "grid", gap: 80, paddingBottom: 60 }}>
+      {/* Export Toolbar */}
+      {runId && (
+        <div style={{
+          display: "flex",
+          justifyContent: "flex-end",
+          gap: 12,
+          paddingTop: 8,
+        }}>
+          <a
+            href={getExportUrl(runId, "pdf")}
+            download
+            style={exportButtonStyle}
+          >
+            <FileText size={16} />
+            <span>Export PDF</span>
+          </a>
+          <a
+            href={getExportUrl(runId, "xlsx")}
+            download
+            style={exportButtonStyle}
+          >
+            <Table size={16} />
+            <span>Export Spreadsheet</span>
+          </a>
+        </div>
+      )}
+
       {/* Transport */}
       {(car_rentals.length > 0 || flights.length > 0) && (
         <section className="animate-fadeIn">
@@ -148,7 +174,7 @@ function SectionHeader({ icon, title, subtitle }: { icon: React.ReactNode, title
   );
 }
 
-function RestaurantCard({ restaurant }: { restaurant: any }) {
+function RestaurantCard({ restaurant }: { restaurant: Restaurant }) {
   return (
     <div style={cardStyle}>
       <div style={{ padding: 24, flex: 1 }}>
@@ -198,7 +224,7 @@ function RestaurantCard({ restaurant }: { restaurant: any }) {
   );
 }
 
-function AttractionCard({ attraction }: { attraction: any }) {
+function AttractionCard({ attraction }: { attraction: TravelSpot }) {
   return (
     <div style={cardStyle}>
       <div style={{ padding: 24, flex: 1 }}>
@@ -243,7 +269,7 @@ function AttractionCard({ attraction }: { attraction: any }) {
   );
 }
 
-function HotelCard({ hotel }: { hotel: any }) {
+function HotelCard({ hotel }: { hotel: Hotel }) {
   return (
     <div style={cardStyle}>
       <div style={{ padding: 24, flex: 1 }}>
@@ -287,7 +313,7 @@ function HotelCard({ hotel }: { hotel: any }) {
   );
 }
 
-function CarRentalCard({ car }: { car: any }) {
+function CarRentalCard({ car }: { car: CarRental }) {
   return (
     <div style={compactCardStyle}>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
@@ -311,7 +337,7 @@ function CarRentalCard({ car }: { car: any }) {
   );
 }
 
-function FlightCard({ flight }: { flight: any }) {
+function FlightCard({ flight }: { flight: Flight }) {
   return (
     <div style={compactCardStyle}>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
@@ -488,4 +514,20 @@ const compactLinkStyle: React.CSSProperties = {
   fontWeight: 600,
   color: "#FF4F00",
   textDecoration: "none",
+};
+
+const exportButtonStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 8,
+  padding: "10px 20px",
+  fontSize: 14,
+  fontWeight: 600,
+  color: "#1d1d1f",
+  background: "#f5f5f7",
+  border: "1px solid #e5e5ea",
+  borderRadius: 100,
+  textDecoration: "none",
+  transition: "all 0.2s ease",
+  cursor: "pointer",
 };

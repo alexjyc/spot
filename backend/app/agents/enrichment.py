@@ -20,7 +20,6 @@ class EnrichmentAgent(BaseAgent):
     """
 
     TIMEOUT_SECONDS = 45
-    # MAX_URLS_PER_BATCH = 20
     MAX_URLS_PER_BATCH = 5
 
     async def execute(self, state: dict[str, Any]) -> dict[str, Any]:
