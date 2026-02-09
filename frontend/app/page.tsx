@@ -1,13 +1,12 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { format, isBefore, startOfDay } from "date-fns";
 import { Search, MapPin, Target } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import ResultsView from "../components/ResultsView";
 import { createRun, getRun, cancelRun } from "../lib/api";
 import { subscribeToRunEvents } from "../lib/sse";
 import { DatePicker } from "../components/ui/DatePicker";
-import { Combobox } from "../components/ui/Combobox";
 import type { SpotOnResults, NodeEventPayload, ArtifactEventPayload } from "../types/api";
 
 export default function Page() {
@@ -22,6 +21,11 @@ export default function Page() {
   const [nodes, setNodes] = useState<Record<string, NodeEventPayload>>({});
   const [logs, setLogs] = useState<string[]>([]);
   const [enrichmentEnabled, setEnrichmentEnabled] = useState(false);
+  const [backendHealth, setBackendHealth] = useState<{
+    status: "unknown" | "ok" | "down";
+    latencyMs?: number;
+    lastCheckedAt?: number;
+  }>({ status: "unknown" });
 
   const eventSourceRef = useRef<{ close: () => void } | null>(null);
   const timeoutRef = useRef<number | null>(null);
@@ -60,6 +64,39 @@ export default function Page() {
       cleanup(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const check = async () => {
+      const t0 = performance.now();
+      try {
+        const res = await fetch("/api/health", { cache: "no-store" });
+        const json = await res.json().catch(() => null);
+        const ok = res.ok && !!json && (json as any).ok === true;
+        if (cancelled) return;
+        setBackendHealth({
+          status: ok ? "ok" : "down",
+          latencyMs: Math.round(performance.now() - t0),
+          lastCheckedAt: Date.now(),
+        });
+      } catch {
+        if (cancelled) return;
+        setBackendHealth({
+          status: "down",
+          latencyMs: Math.round(performance.now() - t0),
+          lastCheckedAt: Date.now(),
+        });
+      }
+    };
+
+    check();
+    const id = window.setInterval(check, 15_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
   }, []);
 
   const [fieldErrors, setFieldErrors] = useState<{ origin?: boolean; destination?: boolean; departing?: boolean }>({});
@@ -102,9 +139,6 @@ export default function Page() {
     const deptStr = format(departingDate!, "yyyy-MM-dd");
     const retStr = returningDate ? format(returningDate, "yyyy-MM-dd") : "";
 
-    const prompt = `From ${origin} to ${destination}, departing ${deptStr}${retStr ? `, returning ${retStr}` : ""
-      }`;
-
     // Structured constraints to bypass LLM
     const constraints = {
       origin,
@@ -114,7 +148,7 @@ export default function Page() {
     };
 
     try {
-      const { runId } = await createRun({ prompt, constraints, options: { skip_enrichment: !enrichmentEnabled } });
+      const { runId } = await createRun({ constraints, options: { skip_enrichment: !enrichmentEnabled } });
       setRunId(runId);
       runIdRef.current = runId;
       setNodes((prev) => ({
@@ -158,7 +192,17 @@ export default function Page() {
         },
         onLog: (data: { message?: string }) => {
           const msg = data?.message;
-          if (msg) setLogs((prev) => [...prev.slice(-30), msg]);
+          if (!msg) return;
+
+          if (
+            msg === "Run started" ||
+            msg === "Run completed" ||
+            msg === "Run failed" ||
+            msg === "Run cancelled"
+          ) {
+            return;
+          }
+          setLogs((prev) => [...prev.slice(-30), msg]);
         },
         onArtifact: (data: ArtifactEventPayload) => {
           if (data?.type === "final_output" && data.payload?.final_output) {
@@ -202,6 +246,7 @@ export default function Page() {
     "AttractionsAgent",
     "HotelAgent",
     "TransportAgent",
+    "WriterAgent",
     ...(enrichmentEnabled ? ["EnrichmentAgent"] : []),
     "AggregateResults",
   ];
@@ -220,10 +265,10 @@ export default function Page() {
           background: "linear-gradient(180deg, #f7f7f7 0%, #ffffff 100%)",
           padding: "80px 20px 60px",
           textAlign: "center",
-          borderBottom: "1px solid #f0f0f0",
         }}
       >
         <div style={{ maxWidth: 800, margin: "0 auto" }}>
+
           <h1
             style={{
               fontSize: "clamp(48px, 5vw, 72px)",
@@ -284,30 +329,42 @@ export default function Page() {
             {/* Origin */}
             <div style={fieldContainerStyle}>
               <label style={labelStyle}>Where from?</label>
-              <Combobox
+              <TextInput
                 placeholder="City or Airport"
                 value={origin}
                 onChange={(val) => {
                   setOrigin(val);
-                  if (fieldErrors.origin) setFieldErrors(prev => ({ ...prev, origin: false }));
+                  if (fieldErrors.origin)
+                    setFieldErrors((prev) => ({ ...prev, origin: false }));
                 }}
                 hasError={fieldErrors.origin}
-                icon={<MapPin size={18} color={fieldErrors.origin ? "#ff3b30" : "#86868b"} />}
+                icon={
+                  <MapPin
+                    size={18}
+                    color={fieldErrors.origin ? "#ff3b30" : "#86868b"}
+                  />
+                }
               />
             </div>
 
             {/* Destination */}
             <div style={fieldContainerStyle}>
               <label style={labelStyle}>Where to?</label>
-              <Combobox
+              <TextInput
                 placeholder="City or Airport"
                 value={destination}
                 onChange={(val) => {
                   setDestination(val);
-                  if (fieldErrors.destination) setFieldErrors(prev => ({ ...prev, destination: false }));
+                  if (fieldErrors.destination)
+                    setFieldErrors((prev) => ({ ...prev, destination: false }));
                 }}
                 hasError={fieldErrors.destination}
-                icon={<MapPin size={18} color={fieldErrors.destination ? "#ff3b30" : "#86868b"} />}
+                icon={
+                  <MapPin
+                    size={18}
+                    color={fieldErrors.destination ? "#ff3b30" : "#86868b"}
+                  />
+                }
               />
             </div>
 
@@ -393,8 +450,8 @@ export default function Page() {
                   color: "#86868b",
                 }}
               >
-                Deep enrichment{" "}
-                <span style={{ fontSize: "12px", fontWeight: 400 }}>(prices, hours, addresses)</span>
+                Deep Research{" "}
+                {/* <span style={{ fontSize: "12px", fontWeight: 400 }}>(prices, hours, addresses)</span> */}
               </span>
             </label>
             <button type="submit" disabled={loading} style={buttonStyle(loading)}>
@@ -542,9 +599,22 @@ export default function Page() {
 
         {results && <ResultsView results={results} runId={runId} />}
       </div>
+      {/* Fixed Status Footer */}
+      <div
+        style={{
+          position: "fixed",
+          bottom: 24,
+          left: "50%",
+          transform: "translateX(-50%)",
+          zIndex: 100,
+        }}
+      >
+        <HealthPill health={backendHealth} />
+      </div>
     </main>
   );
 }
+
 
 
 function Spinner() {
@@ -571,6 +641,137 @@ function Spinner() {
           }}
         />
       ))}
+    </div>
+  );
+}
+
+function HealthPill({
+  health,
+}: {
+  health: { status: "unknown" | "ok" | "down"; latencyMs?: number; lastCheckedAt?: number };
+}) {
+  const isOk = health.status === "ok";
+  const isDown = health.status === "down";
+
+  // Minimalist text: just "Systems Normal" or "Offline" or "Connecting..."
+  const label = isOk ? "Systems Normal" : isDown ? "Offline" : "Connecting...";
+  const color = isOk ? "#34c759" : isDown ? "#ff3b30" : "#86868b";
+
+  return (
+    <div
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "6px 10px",
+        borderRadius: 20,
+        background: "rgba(255, 255, 255, 0.5)",
+        backdropFilter: "blur(8px)",
+        WebkitBackdropFilter: "blur(8px)",
+        border: "1px solid rgba(0,0,0,0.06)",
+        boxShadow: "0 2px 8px rgba(0,0,0,0.02)",
+        transition: "all 0.2s ease",
+        cursor: "default",
+      }}
+    >
+      <div style={{ position: "relative", width: 6, height: 6 }}>
+        <span
+          style={{
+            position: "absolute",
+            inset: 0,
+            borderRadius: "50%",
+            background: color,
+            boxShadow: `0 0 6px ${color}`,
+          }}
+        />
+        {isOk && (
+          <motion.span
+            initial={{ scale: 1, opacity: 0.5 }}
+            animate={{ scale: 2.5, opacity: 0 }}
+            transition={{ duration: 2, repeat: Infinity, ease: "easeOut" }}
+            style={{
+              position: "absolute",
+              inset: 0,
+              borderRadius: "50%",
+              background: color,
+            }}
+          />
+        )}
+      </div>
+
+      <span
+        style={{
+          fontSize: "12px",
+          fontWeight: 500,
+          color: "#48484a", // slightly softer than pure black
+          letterSpacing: "-0.01em",
+        }}
+      >
+        {label}
+      </span>
+
+      {health.latencyMs && isOk && (
+        <span
+          style={{
+            fontSize: "11px",
+            color: "#aeaeb2",
+            fontWeight: 400,
+            marginLeft: 2,
+            fontFeatureSettings: "'tnum' on", // tabular nums
+          }}
+        >
+          {health.latencyMs}ms
+        </span>
+      )}
+    </div>
+  );
+}
+
+function TextInput({
+  value,
+  onChange,
+  placeholder,
+  icon,
+  hasError,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  icon?: ReactNode;
+  hasError?: boolean;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        background: "#ffffff",
+        border: hasError ? "1px solid #ff3b30" : "1px solid #e5e5ea",
+        borderRadius: "14px",
+        padding: "0 16px",
+        height: "54px",
+        transition: "all 0.2s ease",
+        boxShadow: hasError ? "0 0 0 2px rgba(255, 59, 48, 0.1)" : "none",
+      }}
+    >
+      {icon}
+      <input
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        style={{
+          width: "100%",
+          padding: "16px 0",
+          fontSize: "16px",
+          border: "none",
+          outline: "none",
+          fontFamily: "inherit",
+          backgroundColor: "transparent",
+          fontWeight: 500,
+          color: "#1d1d1f",
+        }}
+      />
     </div>
   );
 }

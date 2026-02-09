@@ -18,37 +18,74 @@
 
 ---
 
+## Documentation
+
+This repository keeps the assignment’s deliverables split intentionally:
+
+- **README (this file)**: project summary, local setup, usage, examples, and repo layout.
+- **Technical docs**: `docs/TECHNICAL_DOC.md` (architecture, agent roles, LangGraph flow, MongoDB schema, deployment guide).
+
+If you prefer a single-document approach, you can fold the technical docs into this README, but keeping them in `docs/TECHNICAL_DOC.md` makes staff/lead review and ongoing maintenance easier.
+
+For review: have a staff engineer / engineering lead read `docs/TECHNICAL_DOC.md` and cross-check each section against the referenced code/config files.
+
+---
+
+## Assignment Context
+
+This project was built for the Tavily Engineering Assignment, which requires:
+1. Multi-agent system leveraging Tavily Search + Extract APIs
+2. Production-ready deployment (AWS Elastic Beanstalk + MongoDB Atlas)
+3. Real-time progress streaming and result exports
+
+**Key innovations:**
+- **6-agent architecture:** ParseRequest + 4 domain agents (parallel) + WriterAgent (5 parallel LLMs) + EnrichmentAgent
+- **Separation of concerns:** Search (I/O bound) separated from normalization (CPU bound)
+- **Graceful degradation:** Partial results if agents fail
+- **~15s average latency:** Parallel execution at both search and normalization stages
+
+For evaluation criteria alignment, see `docs/ASSIGNMENT_EVALUATION.md`.
+
+---
+
 ## Architecture
 
 ### Multi-Agent System (MAS)
 
 ```
-                    ParseRequest
+                    ParseRequest (~500ms)
                          │
          ┌───────────────┼───────────────┬───────────────┐
          │               │               │               │
          ▼               ▼               ▼               ▼
   RestaurantAgent  AttractionsAgent  HotelAgent   TransportAgent
-                                                    (Car + Flights)
+   (search only)    (search only)   (search only)  (search only)
+      TOP_N=15         TOP_N=15        TOP_N=15    CAR+FLIGHT=15+15
          │               │               │               │
          └───────────────┴───────────────┴───────────────┘
                               ▼
-                      EnrichmentAgent
+                        WriterAgent (~6s)
+                   (5 parallel LLM normalizations)
+                     7+7+7+5+5 = 31 top picks
                               ▼
-                      AggregateResults
+                      EnrichmentAgent (~5s)
+                   (Tavily extract + LLM parse)
+                              ▼
+                      AggregateResults (~100ms)
                               ▼
                             END
 ```
 
 **Execution Flow:**
 1. **ParseRequest** - Extract origin, destination, dates from user prompt
-2. **4 Domain Agents** - Execute in parallel:
-   - RestaurantAgent: Search and rank restaurants
-   - AttractionsAgent: Select top 3 must-see spots
-   - HotelAgent: Find hotels with pricing
-   - TransportAgent: Search car rentals AND flights
-3. **EnrichmentAgent** - Batch extract webpage content, parse details (sequential after all 4 complete)
-4. **AggregateResults** - Merge enriched data into final output
+2. **4 Domain Agents (parallel)** - Search only, return raw results:
+   - RestaurantAgent: 15 raw results
+   - AttractionsAgent: 15 raw results
+   - HotelAgent: 15 raw results
+   - TransportAgent: 15 cars + 15 flights
+3. **WriterAgent** - 5 parallel LLM normalizations → 31 top picks + references
+4. **EnrichmentAgent** - Batch extract webpages (20 at once), parse details
+5. **AggregateResults** - Merge enriched data into final output
 
 ---
 
@@ -73,12 +110,31 @@ cp .env.example .env
 ```
 
 3. **Start MongoDB:**
+
+#### Option 1: Local MongoDB (Development)
 ```bash
 # Using Docker:
 docker run -d -p 27017:27017 --name travel-mongo mongo:7
 
 # Or using local MongoDB:
 mongod --dbpath /path/to/data
+```
+
+#### Option 2: MongoDB Atlas (Production)
+
+1. **Create MongoDB Atlas cluster:**
+   - Go to https://cloud.mongodb.com
+   - Create free M0 cluster
+   - Create database user (username + password)
+   - Whitelist your IP (or 0.0.0.0/0 for dev)
+
+2. **Get connection string:**
+   - Click "Connect" → "Connect your application"
+   - Copy connection string: `mongodb+srv://user:pass@cluster.mongodb.net/`
+
+3. **Update .env:**
+```bash
+MONGODB_URI=mongodb+srv://user:pass@cluster.mongodb.net/travel_planner?retryWrites=true&w=majority
 ```
 
 4. **Start backend:**
@@ -200,10 +256,6 @@ curl -X POST http://localhost:8000/api/runs \
   -d '{"prompt": "NYC to London next month, love food and museums, moderate budget"}'
 ```
 
-**Expected:**
-- interests: ["food", "museums"]
-- budget: "moderate"
-
 ---
 
 ## Performance
@@ -227,6 +279,23 @@ curl -X POST http://localhost:8000/api/runs \
 - EnrichmentAgent: 45s
 
 ---
+
+## Folder Structure
+
+```
+.
+├── README.md
+├── docs/
+│   └── TECHNICAL_DOC.md
+├── backend/
+│   ├── app/                 # FastAPI app + LangGraph workflow + agents
+│   ├── tests/
+│   ├── Dockerfile           # AWS/production container
+│   └── .elasticbeanstalk/   # Elastic Beanstalk config (Docker platform)
+└── frontend/
+    ├── app/                 # Next.js UI + route handlers (proxy)
+    └── lib/
+```
 
 ## Debugging
 
@@ -271,6 +340,16 @@ Graph node end: EnrichmentAgent (durationMs=4500)
 - Check warnings array in response
 - Verify agent_statuses: should be "completed" not "failed"
 - Test Tavily search manually to verify results available
+
+**6. WriterAgent normalization failures**
+- Check logs for which category failed
+- Verify OpenAI API key is valid and has quota
+- Check if search results are empty (no raw_* items)
+
+**7. Enrichment returning partial results**
+- Check Tavily extract quota
+- Some URLs may be inaccessible (403, 404)
+- This is expected - system degrades gracefully
 
 ---
 
@@ -362,10 +441,7 @@ Create a new recommendation run.
 ```json
 {
   "prompt": "string (required)",
-  "options": {
-    "interests": ["string"],
-    "budget": "budget|moderate|luxury"
-  }
+  "options": {}
 }
 ```
 
@@ -390,9 +466,7 @@ Get run status and results.
     "origin": "string",
     "destination": "string",
     "departing_date": "YYYY-MM-DD",
-    "returning_date": "YYYY-MM-DD|null",
-    "interests": ["string"],
-    "budget": "string"
+    "returning_date": "YYYY-MM-DD|null"
   },
   "final_output": {
     "restaurants": [...],

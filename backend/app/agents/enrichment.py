@@ -8,6 +8,7 @@ from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.agents.base import BaseAgent
+from app.agents.prompt import build_enrichment_prompt
 from app.schemas.spot_on import EnrichedDetails
 
 
@@ -20,7 +21,7 @@ class EnrichmentAgent(BaseAgent):
     """
 
     TIMEOUT_SECONDS = 45
-    MAX_URLS_PER_BATCH = 5
+    MAX_URLS_PER_BATCH = 20
 
     async def execute(self, state: dict[str, Any]) -> dict[str, Any]:
         """Execute enrichment workflow.
@@ -127,16 +128,12 @@ class EnrichmentAgent(BaseAgent):
         # Restaurants
         for r in state.get("restaurants", []):
             if r.get("url"):
-                items.append(
-                    {"id": r["id"], "url": r["url"], "type": "restaurant"}
-                )
+                items.append({"id": r["id"], "url": r["url"], "type": "restaurant"})
 
         # Travel spots
         for t in state.get("travel_spots", []):
             if t.get("url"):
-                items.append(
-                    {"id": t["id"], "url": t["url"], "type": "attraction"}
-                )
+                items.append({"id": t["id"], "url": t["url"], "type": "attraction"})
 
         # Hotels
         for h in state.get("hotels", []):
@@ -146,9 +143,7 @@ class EnrichmentAgent(BaseAgent):
         # Car rentals
         for c in state.get("car_rentals", []):
             if c.get("url"):
-                items.append(
-                    {"id": c["id"], "url": c["url"], "type": "car_rental"}
-                )
+                items.append({"id": c["id"], "url": c["url"], "type": "car_rental"})
 
         # Flights
         for f in state.get("flights", []):
@@ -202,8 +197,7 @@ class EnrichmentAgent(BaseAgent):
 
             # Parse batch in parallel
             tasks = [
-                self._parse_page_with_llm(page, item)
-                for page, item in valid_pairs
+                self._parse_page_with_llm(page, item) for page, item in valid_pairs
             ]
 
             batch_results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -211,9 +205,7 @@ class EnrichmentAgent(BaseAgent):
             # Collect results
             for (page, item), result in zip(valid_pairs, batch_results):
                 if isinstance(result, Exception):
-                    self.logger.warning(
-                        f"Failed to parse {item['url']}: {result}"
-                    )
+                    self.logger.warning(f"Failed to parse {item['url']}: {result}")
                     continue
 
                 if result:
@@ -241,29 +233,8 @@ class EnrichmentAgent(BaseAgent):
         content = content[:5000]
 
         item_type = item["type"]
-        type_hints = {
-            "restaurant": "Look for: price range, hours, phone, address, reservation info",
-            "attraction": "Look for: hours, price/admission, address, phone",
-            "hotel": "Look for: nightly rate, address, phone, amenities",
-            "car_rental": "Look for: daily rate, address, phone, pickup info",
-            "flight": "Look for: flight times, price, booking info",
-        }
 
-        hint = type_hints.get(item_type, "Look for: price, hours, address, phone")
-
-        system_prompt = f"""You are an information extraction expert. Extract structured details from the webpage content.
-
-Item type: {item_type}
-{hint}
-
-Extract the following fields (set to null if not found):
-- price_hint: Any price information found
-- hours_text: Opening/operating hours
-- address: Full address
-- phone: Phone number
-- reservation_required: true/false if mentioned, null otherwise
-
-Be precise. Only extract information that is clearly stated. Don't make assumptions."""
+        system_prompt = build_enrichment_prompt(item_type=item_type)
 
         messages = [
             SystemMessage(content=system_prompt),
@@ -274,7 +245,5 @@ Be precise. Only extract information that is clearly stated. Don't make assumpti
             result = await self.deps.llm.structured(messages, EnrichedDetails)
             return result.model_dump()
         except Exception as e:
-            self.logger.debug(
-                f"LLM parsing failed for {item['url']}: {e}"
-            )
+            self.logger.debug(f"LLM parsing failed for {item['url']}: {e}")
             return None

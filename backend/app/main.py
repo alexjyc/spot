@@ -129,7 +129,6 @@ def create_app() -> FastAPI:
             options = run_doc.get("options") or {}
             initial_state = {
                 "runId": run_id,
-                "prompt": run_doc.get("prompt"),
                 "status": "running",
                 "agent_statuses": {},
                 "warnings": [],
@@ -217,10 +216,23 @@ def create_app() -> FastAPI:
 
         run_id = new_run_id()
         options = dict(req.options or {})
+        constraints = req.constraints.model_dump() if req.constraints else None
+
+        prompt = None
+        if req.constraints:
+            prompt = (
+                f"From {req.constraints.origin} to {req.constraints.destination}, "
+                f"departing {req.constraints.departing_date}"
+                + (
+                    f", returning {req.constraints.returning_date}"
+                    if req.constraints.returning_date
+                    else ""
+                )
+            )
         await mongo.create_run(
             run_id,
-            prompt=req.prompt,
-            constraints=req.constraints,
+            prompt=prompt,
+            constraints=constraints,
             options=options,
         )
         await mongo.append_event(

@@ -49,13 +49,8 @@ class BaseAgent(ABC):
 
     # -- Shared helpers used by domain agents --
 
-    @staticmethod
-    def _extract_city(destination: str) -> str:
-        """Extract clean city name, stripping airport codes like '(JFK)'."""
-        return destination.split("(")[0].strip()
-
     async def _parallel_search(
-        self, queries: list[str], max_results: int = 3
+        self, queries: list[str], max_results: int = 8
     ) -> list[dict[str, Any]]:
         """Execute multiple Tavily searches in parallel."""
         tasks = [self.deps.tavily.search(q, max_results=max_results) for q in queries]
@@ -88,14 +83,6 @@ class BaseAgent(ABC):
             seen_urls.add(canon_url)
             unique.append(item)
         return unique[:top_n]
-
-    @staticmethod
-    def _build_interest_query(interests: list[str], suffix: str, city: str) -> str | None:
-        """Build an interest-based search query, or None if no interests."""
-        if not interests:
-            return None
-        interest_str = " ".join(interests[:2])
-        return f"{interest_str} {suffix} in {city}"
 
     @staticmethod
     def _flatten_search_results(search_results: list[Any]) -> list[dict[str, Any]]:

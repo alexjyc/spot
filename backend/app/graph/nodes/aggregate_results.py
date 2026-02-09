@@ -24,6 +24,7 @@ async def aggregate_results(state: dict[str, Any], *, deps: Any) -> dict[str, An
     categories = ["restaurants", "travel_spots", "hotels", "car_rentals", "flights"]
     final_output = {cat: _merge(state.get(cat, []), enriched) for cat in categories}
     final_output["constraints"] = state.get("constraints", {})
+    final_output["references"] = state.get("references", [])
 
     total_results = sum(len(final_output[cat]) for cat in categories)
 

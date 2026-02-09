@@ -1,35 +1,28 @@
-"""Transport recommendation agent (car rentals + flights)."""
+"""Transport recommendation agent (car rentals + flights) — search only."""
 
 from __future__ import annotations
 
 import asyncio
 from typing import Any
 
-from langchain_core.messages import HumanMessage, SystemMessage
-
 from app.agents.base import BaseAgent
-from app.schemas.spot_on import CarRentalOutput, FlightOutput, CarRentalList, FlightList
 
 
 class TransportAgent(BaseAgent):
-    """Agent responsible for finding car rental and flight options.
+    """Agent responsible for finding car rental and flight search results.
 
     Combines both transportation modalities since they're often compared together.
-    Uses Tavily for web search and LLM for normalization.
+    Uses Tavily for web search. Returns raw deduplicated results.
+    LLM normalization happens in WriterAgent.
     """
 
     TIMEOUT_SECONDS = 40
-    CAR_RESULTS = 3
-    FLIGHT_RESULTS = 3
+    CAR_TOP_N = 15
+    FLIGHT_TOP_N = 15
 
     async def execute(self, state: dict[str, Any]) -> dict[str, Any]:
         try:
-            constraints = state.get("constraints", {})
-
-            destination = constraints.get("destination")
-            if not destination or not isinstance(destination, str):
-                self.logger.warning("Invalid or missing destination in constraints")
-                return self._failed_result("Missing or invalid destination")
+            qctx = state.get("query_context", {})
 
             self.logger.info(
                 "TransportAgent starting parallel car + flight searches",
@@ -37,8 +30,8 @@ class TransportAgent(BaseAgent):
             )
 
             car_results, flight_results = await asyncio.gather(
-                self._search_car_rentals(constraints),
-                self._search_flights(constraints),
+                self._search_car_rentals(qctx),
+                self._search_flights(qctx),
                 return_exceptions=True,
             )
 
@@ -75,8 +68,8 @@ class TransportAgent(BaseAgent):
             )
 
             result: dict[str, Any] = {
-                "car_rentals": cars,
-                "flights": flights,
+                "raw_car_rentals": cars,
+                "raw_flights": flights,
                 "agent_statuses": {self.agent_id: status},
             }
 
@@ -94,22 +87,24 @@ class TransportAgent(BaseAgent):
             return self._failed_result(str(e))
 
     async def _search_car_rentals(
-        self, constraints: dict[str, Any]
+        self, qctx: dict[str, Any]
     ) -> list[dict[str, Any]]:
-        destination = constraints.get("destination")
-        departing_date = constraints.get("departing_date")
+        city = qctx.get("destination_city")
+        airport = qctx.get("destination_code")
+        departing_date = qctx.get("departing_date")
+        returning_date = qctx.get("returning_date")
 
-        if not destination:
+        if not city:
             self.logger.warning("No destination for car rentals")
             return []
 
-        city = self._extract_city(destination)
-        date_str = f" {departing_date}" if departing_date else " 2026"
+        if returning_date:
+            returning_date = " -> " + returning_date
 
         queries = [
-            f"car rental {city}{date_str}",
-            f"rent a car {city} airport",
-            f"best car rental deals {city}",
+            f"car rental {airport} airport pickup {departing_date}{returning_date}",
+            f"best car rental deals {city} {departing_date}{returning_date}",
+            f"local car rental companies {city} tourist {departing_date}{returning_date}",
         ]
 
         search_results = await self._parallel_search(queries)
@@ -119,123 +114,36 @@ class TransportAgent(BaseAgent):
             self.logger.warning("No car rental search results")
             return []
 
-        unique_items = self._dedup_by_url(all_items)
-        sorted_items = self._top_by_score(unique_items, n=15)
-
-        cars = await self._normalize_cars_with_llm(sorted_items, constraints)
-        return [c.model_dump() for c in cars[: self.CAR_RESULTS]]
+        unique = self._dedup_by_url(all_items)
+        return self._top_by_score(unique, n=self.CAR_TOP_N)
 
     async def _search_flights(
-        self, constraints: dict[str, Any]
+        self, qctx: dict[str, Any]
     ) -> list[dict[str, Any]]:
-        origin = constraints.get("origin")
-        destination = constraints.get("destination")
-        departing_date = constraints.get("departing_date")
-        returning_date = constraints.get("returning_date")
+        origin_airport = qctx.get("origin_code")
+        destination_airport = qctx.get("destination_code")
+        departing_date = qctx.get("departing_date")
+        returning_date = qctx.get("returning_date")
 
-        if not origin or not destination:
-            self.logger.warning("Missing origin or destination for flights")
-            return []
+        if not origin_airport or not destination_airport:
+            origin_airport = qctx.get("origin_city")
+            destination_airport = qctx.get("destination_city")
 
-        trip_type = "round-trip" if returning_date else "one-way"
-        date_str = f" {departing_date}" if departing_date else ""
-        return_str = f" return {returning_date}" if returning_date else ""
-
+        if returning_date:
+            returning_date = " -> " + returning_date
+            
         queries = [
-            f"flights from {origin} to {destination}{date_str}{return_str}",
-            f"{origin} to {destination} flight {trip_type}",
-            f"cheap flights {origin} {destination}{date_str}",
+            f"flights {origin_airport} -> {destination_airport} {departing_date}{returning_date}",
+            f"cheap flights {origin_airport} -> {destination_airport} {departing_date}{returning_date}",
+            f"direct nonstop flights {origin_airport} -> {destination_airport} {departing_date}{returning_date}",
         ]
 
-        search_results = await self._parallel_search(queries, max_results=5)
+        search_results = await self._parallel_search(queries)
         all_items = self._flatten_search_results(search_results)
 
         if not all_items:
             self.logger.warning("No flight search results")
             return []
 
-        unique_items = self._dedup_by_url(all_items)
-        sorted_items = self._top_by_score(unique_items, n=15)
-
-        flights = await self._normalize_flights_with_llm(sorted_items, constraints)
-        return [f.model_dump() for f in flights[: self.FLIGHT_RESULTS]]
-
-    async def _normalize_cars_with_llm(
-        self, items: list[dict[str, Any]], constraints: dict[str, Any]
-    ) -> list[CarRentalOutput]:
-        if not items:
-            return []
-
-        search_text = self._format_search_text(items, content_limit=400)
-        destination = constraints.get("destination", "the destination")
-        departing_date = constraints.get("departing_date", "")
-
-        system_prompt = f"""You are a car rental expert. Parse the search results and extract 3-4 car rental options for {destination}.
-
-For each rental option, extract:
-- provider: Rental company name (e.g., 'Hertz', 'Budget', 'Enterprise')
-- vehicle_class: Vehicle type (e.g., 'compact', 'sedan', 'SUV', 'luxury')
-- price_per_day: Per-day price with currency (e.g., '$45', '₩60,000'). Extract if available.
-- pickup_location: Pickup location (e.g., 'Airport', 'Downtown', 'City Center')
-- url: The original URL
-- why_recommended: 1-2 sentences explaining why this is a good option
-
-Context:
-- Pickup date: {departing_date}
-
-Return results as a JSON array. Generate unique IDs using format "car_{{destination_code}}_{{number}}"."""
-
-        messages = [
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=f"Search results:\n\n{search_text}"),
-        ]
-
-        try:
-            result = await self.deps.llm.structured(messages, CarRentalList)
-            return result.cars
-        except Exception as e:
-            self.logger.error(f"Car rental LLM normalization failed: {e}", exc_info=True)
-            return []
-
-    async def _normalize_flights_with_llm(
-        self, items: list[dict[str, Any]], constraints: dict[str, Any]
-    ) -> list[FlightOutput]:
-        if not items:
-            return []
-
-        search_text = self._format_search_text(items, content_limit=400)
-        origin = constraints.get("origin", "")
-        destination = constraints.get("destination", "")
-        departing_date = constraints.get("departing_date", "")
-        returning_date = constraints.get("returning_date")
-        trip_type = "round-trip" if returning_date else "one-way"
-
-        system_prompt = f"""You are a flight search expert. Parse the search results and extract 3-4 flight options from {origin} to {destination}.
-
-For each flight option, extract:
-- airline: Airline name (e.g., 'United', 'Korean Air', 'Delta'). Set to null if not mentioned.
-- route: Route description (e.g., 'Tokyo NRT -> Seoul ICN', 'LAX -> JFK')
-- trip_type: Must be "{trip_type}"
-- price_range: Price range with currency (e.g., '$200-$350', '₩300,000-₩500,000'). Extract if available.
-- url: The original URL
-- snippet: 1-2 sentence description of the flight option
-- why_recommended: 1-2 sentences explaining why this is a good option (e.g., 'Direct flight', 'Best price', 'Premium airline')
-
-Context:
-- Departure date: {departing_date}
-- Return date: {returning_date or 'N/A'}
-- Trip type: {trip_type}
-
-Return results as a JSON array. Generate unique IDs using format "flight_{{origin_code}}_{{dest_code}}_{{number}}"."""
-
-        messages = [
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=f"Search results:\n\n{search_text}"),
-        ]
-
-        try:
-            result = await self.deps.llm.structured(messages, FlightList)
-            return result.flights
-        except Exception as e:
-            self.logger.error(f"Flight LLM normalization failed: {e}", exc_info=True)
-            return []
+        unique = self._dedup_by_url(all_items)
+        return self._top_by_score(unique, n=self.FLIGHT_TOP_N)

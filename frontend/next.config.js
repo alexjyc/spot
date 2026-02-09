@@ -15,13 +15,8 @@ const nextConfig = {
         source: "/api/health/:path*",
         destination: `${apiUrl}/api/health/:path*`,
       },
-      {
-        source: "/api/exports/:path*",
-        destination: `${apiUrl}/api/exports/:path*`,
-      },
     ];
   },
 };
 
 module.exports = nextConfig;
-

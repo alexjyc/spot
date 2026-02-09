@@ -13,6 +13,7 @@ from app.agents.enrichment import EnrichmentAgent
 from app.agents.hotel import HotelAgent
 from app.agents.restaurant import RestaurantAgent
 from app.agents.transport import TransportAgent
+from app.agents.writer import WriterAgent
 from app.graph.nodes.aggregate_results import aggregate_results
 from app.graph.nodes.parse import parse_request
 from app.graph.state import SpotOnState
@@ -30,9 +31,12 @@ def build_graph(deps: Any):
              │               │               │               │
              ▼               ▼               ▼               ▼
       RestaurantAgent  AttractionsAgent  HotelAgent   TransportAgent
-                                                        (Car + Flights)
+        (search only)   (search only)   (search only)  (search only)
              │               │               │               │
              └───────────────┴───────────────┴───────────────┘
+                                  ▼
+                            WriterAgent
+                      (5 parallel LLM calls)
                                   ▼
                           EnrichmentAgent
                                   ▼
@@ -40,8 +44,9 @@ def build_graph(deps: Any):
                                   ▼
                                 END
 
-    All 4 domain agents execute in parallel. EnrichmentAgent waits for all 4 to complete
-    (LangGraph handles the join automatically). Then AggregateResults merges everything.
+    All 4 domain agents execute in parallel (search only). WriterAgent waits
+    for all 4 to complete, then runs 5 parallel LLM normalizations.
+    EnrichmentAgent processes only the top picks (~18 items).
 
     Args:
         deps: Dependency container with services (tavily, llm, mongo, etc.)
@@ -56,6 +61,7 @@ def build_graph(deps: Any):
     attractions_agent = AttractionsAgent("attractions_agent", deps)
     hotel_agent = HotelAgent("hotel_agent", deps)
     transport_agent = TransportAgent("transport_agent", deps)
+    writer_agent = WriterAgent("writer_agent", deps)
     enrichment_agent = EnrichmentAgent("enrichment_agent", deps)
 
     async def _emit_node_event(
@@ -168,7 +174,13 @@ def build_graph(deps: Any):
         _wrap("TransportAgent", transport_agent.execute, pass_deps_kwarg=False),
     )
 
-    # Enrichment agent (sequential after all domain agents)
+    # Writer agent (normalizes raw search results into top picks)
+    graph.add_node(
+        "WriterAgent",
+        _wrap("WriterAgent", writer_agent.execute, pass_deps_kwarg=False),
+    )
+
+    # Enrichment agent (sequential after writer)
     graph.add_node(
         "EnrichmentAgent",
         _wrap("EnrichmentAgent", enrichment_agent.execute, pass_deps_kwarg=False),
@@ -184,9 +196,9 @@ def build_graph(deps: Any):
     # GRAPH STRUCTURE - MULTI-AGENT PARALLEL EXECUTION
     # =========================================================================
     #
-    # Parse -> [4 domain agents in parallel] -> Enrichment -> Aggregate -> END
+    # Parse -> [4 domain agents in parallel] -> Writer -> Enrichment -> Aggregate -> END
     #
-    # LangGraph automatically handles the join pattern: EnrichmentAgent waits for
+    # LangGraph automatically handles the join pattern: WriterAgent waits for
     # all 4 domain agents to complete before executing.
     # =========================================================================
 
@@ -198,13 +210,14 @@ def build_graph(deps: Any):
     graph.add_edge("ParseRequest", "HotelAgent")
     graph.add_edge("ParseRequest", "TransportAgent")
 
-    # Join pattern: EnrichmentAgent waits for all 4 domain agents
-    graph.add_edge("RestaurantAgent", "EnrichmentAgent")
-    graph.add_edge("AttractionsAgent", "EnrichmentAgent")
-    graph.add_edge("HotelAgent", "EnrichmentAgent")
-    graph.add_edge("TransportAgent", "EnrichmentAgent")
+    # Join pattern: WriterAgent waits for all 4 domain agents
+    graph.add_edge("RestaurantAgent", "WriterAgent")
+    graph.add_edge("AttractionsAgent", "WriterAgent")
+    graph.add_edge("HotelAgent", "WriterAgent")
+    graph.add_edge("TransportAgent", "WriterAgent")
 
-    # Sequential after enrichment
+    # Sequential: Writer -> Enrichment -> Aggregate -> END
+    graph.add_edge("WriterAgent", "EnrichmentAgent")
     graph.add_edge("EnrichmentAgent", "AggregateResults")
     graph.add_edge("AggregateResults", END)
 

@@ -9,6 +9,7 @@ class SpotOnState(TypedDict, total=False):
 
     # Input
     runId: str
+    # prompt is metadata only; parsing is constraints-based.
     prompt: str
 
     # Parsed constraints
@@ -20,15 +21,28 @@ class SpotOnState(TypedDict, total=False):
     #   "returning_date": "2026-03-18" | None
     # }
 
-    # Domain agent outputs
+    # Raw search results from domain agents (merged via operator.add)
+    raw_restaurants: Annotated[list[dict[str, Any]], operator.add]
+    raw_travel_spots: Annotated[list[dict[str, Any]], operator.add]
+    raw_hotels: Annotated[list[dict[str, Any]], operator.add]
+    raw_car_rentals: Annotated[list[dict[str, Any]], operator.add]
+    raw_flights: Annotated[list[dict[str, Any]], operator.add]
+
+    # Domain agent outputs (written by WriterAgent)
     restaurants: list[dict[str, Any]]
     travel_spots: list[dict[str, Any]]
     hotels: list[dict[str, Any]]
     car_rentals: list[dict[str, Any]]
     flights: list[dict[str, Any]]
 
+    # Reference items not selected as top picks
+    references: list[dict[str, Any]]
+
     # Enrichment
     enriched_data: dict[str, dict[str, Any]]  # item_id -> {price, hours, address, phone}
+
+    # Derived deterministic context
+    query_context: dict[str, Any]
 
     # Options
     skip_enrichment: bool

@@ -5,6 +5,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.schemas.spot_on import TravelConstraints
+
 RunStatus = Literal["queued", "running", "done", "error", "cancelled"]
 NodeStatus = Literal["start", "end", "error"]
 
@@ -24,20 +26,17 @@ class RunProgress(BaseModel):
 class RunCreateRequest(BaseModel):
     """Create a Spot On run.
 
-    Provide either:
-    - `prompt` (free-form text) OR
-    - `constraints` (structured input from UI dropdowns/forms).
+    Provide structured `constraints`. Prompt-only runs are not supported.
     """
 
-    prompt: str | None = None
-    constraints: dict[str, Any] | None = None
-    # Reserved for future feature flags. Current Spot On graph ignores options.
+    constraints: TravelConstraints | None = None
+    # Reserved for feature flags.
     options: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def _require_prompt_or_constraints(self) -> "RunCreateRequest":
-        if not (self.prompt and self.prompt.strip()) and not self.constraints:
-            raise ValueError("Provide either 'prompt' or 'constraints'")
+    def _require_constraints(self) -> "RunCreateRequest":
+        if not self.constraints:
+            raise ValueError("Provide 'constraints'")
         return self
 
 

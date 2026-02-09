@@ -21,6 +21,9 @@ interface ResultsViewProps {
   runId?: string | null;
 }
 
+const TOP_N = 3;
+const TOP_N_RESTAURANTS = 4;
+
 export default function ResultsView({ results, runId }: ResultsViewProps) {
   const {
     restaurants = [],
@@ -29,6 +32,21 @@ export default function ResultsView({ results, runId }: ResultsViewProps) {
     car_rentals = [],
     flights = [],
   } = results;
+
+  const topRestaurants = restaurants.slice(0, TOP_N_RESTAURANTS);
+  const refRestaurants = restaurants.slice(TOP_N_RESTAURANTS);
+
+  const topSpots = travel_spots.slice(0, TOP_N);
+  const refSpots = travel_spots.slice(TOP_N);
+
+  const topHotels = hotels.slice(0, TOP_N);
+  const refHotels = hotels.slice(TOP_N);
+
+  const topCars = car_rentals.slice(0, TOP_N);
+  const refCars = car_rentals.slice(TOP_N);
+
+  const topFlights = flights.slice(0, TOP_N);
+  const refFlights = flights.slice(TOP_N);
 
   return (
     <div style={{ display: "grid", gap: 80, paddingBottom: 60 }}>
@@ -72,10 +90,17 @@ export default function ResultsView({ results, runId }: ResultsViewProps) {
               <div>
                 <h3 style={subHeaderStyle}>Car Rentals</h3>
                 <div style={compactGridStyle}>
-                  {car_rentals.map((c, i) => (
+                  {topCars.map((c, i) => (
                     <CarRentalCard key={c.id || i} car={c} />
                   ))}
                 </div>
+                {refCars.length > 0 && (
+                  <ReferenceSection title="More car rentals">
+                    {refCars.map((c, i) => (
+                      <RefRow key={c.id || i} name={c.provider} detail={c.vehicle_class} price={c.price_per_day ? `${c.price_per_day}/day` : undefined} url={c.url} />
+                    ))}
+                  </ReferenceSection>
+                )}
               </div>
             )}
 
@@ -83,10 +108,17 @@ export default function ResultsView({ results, runId }: ResultsViewProps) {
               <div>
                 <h3 style={subHeaderStyle}>Flights</h3>
                 <div style={compactGridStyle}>
-                  {flights.map((f, i) => (
+                  {topFlights.map((f, i) => (
                     <FlightCard key={f.id || i} flight={f} />
                   ))}
                 </div>
+                {refFlights.length > 0 && (
+                  <ReferenceSection title="More flights">
+                    {refFlights.map((f, i) => (
+                      <RefRow key={f.id || i} name={f.airline ? `${f.airline} — ${f.route}` : f.route} detail={f.trip_type === "round-trip" ? "Round-trip" : "One-way"} price={f.price_range || undefined} url={f.url} />
+                    ))}
+                  </ReferenceSection>
+                )}
               </div>
             )}
           </div>
@@ -102,10 +134,17 @@ export default function ResultsView({ results, runId }: ResultsViewProps) {
             subtitle="Highly rated accommodations for comfort."
           />
           <div style={gridStyle}>
-            {hotels.map((h, i) => (
+            {topHotels.map((h, i) => (
               <HotelCard key={h.id || i} hotel={h} />
             ))}
           </div>
+          {refHotels.length > 0 && (
+            <ReferenceSection title="More hotels">
+              {refHotels.map((h, i) => (
+                <RefRow key={h.id || i} name={h.name} detail={h.why_recommended?.slice(0, 60)} price={h.price_per_night ? `${h.price_per_night}/night` : undefined} url={h.url} />
+              ))}
+            </ReferenceSection>
+          )}
         </section>
       )}
 
@@ -118,10 +157,17 @@ export default function ResultsView({ results, runId }: ResultsViewProps) {
             subtitle="Curated culinary experiences for your first meal."
           />
           <div style={gridStyle}>
-            {restaurants.map((r, i) => (
+            {topRestaurants.map((r, i) => (
               <RestaurantCard key={r.id || i} restaurant={r} />
             ))}
           </div>
+          {refRestaurants.length > 0 && (
+            <ReferenceSection title="More restaurants">
+              {refRestaurants.map((r, i) => (
+                <RefRow key={r.id || i} name={r.name} detail={[r.cuisine, r.area].filter(Boolean).join(" · ")} price={r.price_range || undefined} url={r.url} />
+              ))}
+            </ReferenceSection>
+          )}
         </section>
       )}
 
@@ -134,10 +180,17 @@ export default function ResultsView({ results, runId }: ResultsViewProps) {
             subtitle="Top attractions to start your journey."
           />
           <div style={gridStyle}>
-            {travel_spots.map((t, i) => (
+            {topSpots.map((t, i) => (
               <AttractionCard key={t.id || i} attraction={t} />
             ))}
           </div>
+          {refSpots.length > 0 && (
+            <ReferenceSection title="More attractions">
+              {refSpots.map((t, i) => (
+                <RefRow key={t.id || i} name={t.name} detail={t.kind} url={t.url} />
+              ))}
+            </ReferenceSection>
+          )}
         </section>
       )}
     </div>
@@ -170,6 +223,28 @@ function SectionHeader({ icon, title, subtitle }: { icon: React.ReactNode, title
         </h2>
         <p style={{ fontSize: 17, color: "#86868b", margin: 0, fontWeight: 400 }}>{subtitle}</p>
       </div>
+    </div>
+  );
+}
+
+function ReferenceSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div style={{ marginTop: 24 }}>
+      <h4 style={{ fontSize: 14, color: "#86868b", marginBottom: 12, fontWeight: 600 }}>{title}</h4>
+      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function RefRow({ name, detail, price, url }: { name: string; detail?: string; price?: string; url: string }) {
+  return (
+    <div style={refRowStyle}>
+      <span style={refNameStyle}>{name}</span>
+      {detail && <span style={refDetailStyle}>{detail}</span>}
+      {price && <span style={refPriceStyle}>{price}</span>}
+      <a href={url} target="_blank" rel="noopener noreferrer" style={refLinkStyle}>View</a>
     </div>
   );
 }
@@ -530,4 +605,48 @@ const exportButtonStyle: React.CSSProperties = {
   textDecoration: "none",
   transition: "all 0.2s ease",
   cursor: "pointer",
+};
+
+// Reference rows
+const refRowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 16,
+  padding: "10px 16px",
+  borderRadius: 10,
+  background: "#fafafa",
+  fontSize: 14,
+};
+
+const refNameStyle: React.CSSProperties = {
+  fontWeight: 600,
+  color: "#1d1d1f",
+  minWidth: 0,
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  maxWidth: 220,
+};
+
+const refDetailStyle: React.CSSProperties = {
+  color: "#86868b",
+  flex: 1,
+  minWidth: 0,
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+};
+
+const refPriceStyle: React.CSSProperties = {
+  fontWeight: 600,
+  color: "#1d8b3a",
+  whiteSpace: "nowrap",
+};
+
+const refLinkStyle: React.CSSProperties = {
+  fontWeight: 600,
+  color: "#FF4F00",
+  textDecoration: "none",
+  whiteSpace: "nowrap",
+  marginLeft: "auto",
 };

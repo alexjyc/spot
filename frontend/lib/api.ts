@@ -1,20 +1,11 @@
 import type { RunResponse } from "../types/api";
 
 export type RunOptions = {
-  country?: string;
-  days?: number;
-  pace?: "relaxed" | "standard" | "packed";
-  budget?: number;
-  interests?: string[];
-  avoid?: string[];
-  must_do?: string[];
-  special_instructions?: string;
   skip_enrichment?: boolean;
 };
 
 export type CreateRunRequest = {
-  prompt: string;
-  constraints?: Record<string, any>;
+  constraints: Record<string, any>;
   options?: RunOptions;
 };
 
@@ -61,4 +52,3 @@ export async function cancelRun(runId: string): Promise<void> {
 export function getExportUrl(runId: string, format: "pdf" | "xlsx"): string {
   return `/api/runs/${runId}/export/${format}`;
 }
-
