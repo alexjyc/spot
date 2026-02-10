@@ -9,8 +9,6 @@ class SpotOnState(TypedDict, total=False):
 
     # Input
     runId: str
-    # prompt is metadata only; parsing is constraints-based.
-    prompt: str
 
     # Parsed constraints
     constraints: dict[str, Any]

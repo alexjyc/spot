@@ -15,7 +15,7 @@ class AttractionsAgent(BaseAgent):
     """
 
     TIMEOUT_SECONDS = 30
-    TOP_N = 15
+    TOP_N = 20
 
     async def execute(self, state: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -24,26 +24,28 @@ class AttractionsAgent(BaseAgent):
             city = qctx.get("destination_city")
             current_year = qctx.get("depart_year", 2026)
 
-            queries = self._build_queries(city, current_year)
+            primary, fallback = self._build_queries(city, current_year)
             self.logger.info(
-                f"AttractionsAgent searching with {len(queries)} queries",
+                f"AttractionsAgent searching with {len(primary)} primary queries",
                 extra={"run_id": state.get("runId"), "destination": city},
             )
 
-            search_results = await self.with_timeout(
-                self._parallel_search(queries), 
-                timeout_seconds=self.TIMEOUT_SECONDS
+            top = await self.with_timeout(
+                self._search_with_fallback(
+                    primary,
+                    fallback,
+                    top_n=self.TOP_N,
+                    run_id=state.get("runId"),
+                    label="attractions",
+                    include_raw_content=True,
+                ),
+                timeout_seconds=self.TIMEOUT_SECONDS,
             )
 
-            if search_results is None:
+            if top is None:
                 return self._failed_result("Search timeout")
-
-            all_items = self._flatten_search_results(search_results)
-            if not all_items:
+            if not top:
                 return self._failed_result("No search results found")
-
-            unique = self._dedup_by_url(all_items)
-            top = self._top_by_score(unique, n=self.TOP_N)
 
             self.logger.info(
                 "AttractionsAgent completed",
@@ -66,9 +68,14 @@ class AttractionsAgent(BaseAgent):
             )
             return self._failed_result(str(e))
 
-    def _build_queries(self, city: str, current_year: int) -> list[str]:
-        return [
+    def _build_queries(self, city: str, current_year: int) -> tuple[list[str], list[str]]:
+        primary = [
             f"top attractions {city} must see {current_year}",
             f"{city} best things to do iconic landmarks sightseeing",
             f"{city} unique experiences hidden gems",
         ]
+        fallback = [
+            f"{city} markets historic districts walking areas",
+            f"{city} free things to do self guided walking tour",
+        ]
+        return primary, fallback

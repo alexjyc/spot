@@ -81,6 +81,24 @@ def build_graph(deps: Any):
         await deps.mongo.append_event(run_id, type="node", node=node, payload=payload)
         await deps.mongo.set_node_progress(run_id, node=node, payload=payload)
 
+    async def _emit_run_log(
+        run_id: str,
+        *,
+        node: str,
+        input: dict[str, Any],
+        output: dict[str, Any],
+        duration_ms: int,
+        error: dict[str, Any] | None = None,
+    ) -> None:
+        await deps.mongo.append_node_end_log(
+            run_id,
+            node=node,
+            input=input,
+            output=output,
+            duration_ms=duration_ms,
+            error=error,
+        )
+
     def _wrap(
         name: str,
         fn: Callable[..., Coroutine[Any, Any, dict[str, Any]]],
@@ -91,6 +109,7 @@ def build_graph(deps: Any):
             run_id = state.get("runId")
             t0 = time.monotonic()
             logger.info("Graph node start: %s (runId=%s)", name, run_id or "-")
+            node_input: dict[str, Any] = dict(state)
 
             if run_id:
                 await _emit_node_event(
@@ -111,6 +130,22 @@ def build_graph(deps: Any):
                 )
 
                 if run_id:
+                    try:
+                        await _emit_run_log(
+                            run_id,
+                            node=name,
+                            input=node_input,
+                            output=out,
+                            duration_ms=duration_ms,
+                        )
+                    except Exception:
+                        logger.debug(
+                            "Failed to emit node end log: %s (runId=%s)",
+                            name,
+                            run_id,
+                            exc_info=True,
+                        )
+
                     await _emit_node_event(
                         run_id,
                         node=name,
@@ -140,6 +175,25 @@ def build_graph(deps: Any):
                 )
 
                 if run_id:
+                    try:
+                        await _emit_run_log(
+                            run_id,
+                            node=name,
+                            input=node_input,
+                            output={
+                                "error": {"message": str(e), "type": type(e).__name__}
+                            },
+                            duration_ms=duration_ms,
+                            error={"message": str(e), "type": type(e).__name__},
+                        )
+                    except Exception:
+                        logger.debug(
+                            "Failed to emit node end log (error): %s (runId=%s)",
+                            name,
+                            run_id,
+                            exc_info=True,
+                        )
+
                     await _emit_node_event(
                         run_id,
                         node=name,

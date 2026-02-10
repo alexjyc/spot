@@ -3,11 +3,11 @@
 ## Overview
 
 **Spot On** is a fast, parallel multi-agent travel recommendation system that provides curated suggestions for:
-1. **Restaurants** - Best dining for first day (top 5)
-2. **Travel Spots** - Must-see attractions (exactly 3)
-3. **Hotels** - Accommodation options with per-night pricing (3-5)
-4. **Car Rentals** - Vehicle rental options (up to 3)
-5. **Flights** - One-way or round-trip flights (up to 3)
+1. **Restaurants** - Best dining options (top 7)
+2. **Travel Spots** - Must-see attractions (top 7)
+3. **Hotels** - Accommodation options with per-night pricing (top 7)
+4. **Car Rentals** - Vehicle rental options (top 5)
+5. **Flights** - One-way or round-trip flights (top 5)
 
 ### Key Features
 - ⚡ **Fast**: ~8-10 seconds average response time (parallel agent execution)
@@ -77,7 +77,7 @@ For evaluation criteria alignment, see `docs/ASSIGNMENT_EVALUATION.md`.
 ```
 
 **Execution Flow:**
-1. **ParseRequest** - Extract origin, destination, dates from user prompt
+1. **ParseRequest** - Validate constraints and derive query context
 2. **4 Domain Agents (parallel)** - Search only, return raw results:
    - RestaurantAgent: 15 raw results
    - AttractionsAgent: 15 raw results
@@ -179,8 +179,12 @@ bun run dev
 curl -X POST http://localhost:8000/api/runs \
   -H "Content-Type: application/json" \
   -d '{
-    "prompt": "Tokyo to Seoul, departing March 15, 2026, returning March 18, 2026",
-    "options": {}
+    "constraints": {
+      "origin": "Tokyo",
+      "destination": "Seoul",
+      "departing_date": "2026-03-15",
+      "returning_date": "2026-03-18"
+    }
   }'
 
 # Response: {"runId": "run_abc123"}
@@ -207,7 +211,10 @@ curl http://localhost:8000/api/runs/run_abc123
     "travel_spots": [...],
     "hotels": [...],
     "car_rentals": [...],
-    "flights": [...]
+    "flights": [...],
+    "references": [...],
+    "agent_statuses": {...},
+    "warnings": [...]
   },
   "warnings": [],
   "durationMs": 8234
@@ -240,20 +247,30 @@ pytest tests/ -v
 ```bash
 curl -X POST http://localhost:8000/api/runs \
   -H "Content-Type: application/json" \
-  -d '{"prompt": "From LAX to Paris on April 10, returning April 17"}'
+  -d '{
+    "constraints": {
+      "origin": "Los Angeles",
+      "destination": "Paris",
+      "departing_date": "2026-04-10",
+      "returning_date": "2026-04-17"
+    }
+  }'
 ```
-
-**Expected constraints:**
-- origin: "Los Angeles (LAX)"
-- destination: "Paris"
-- departing_date: "2026-04-10"
-- returning_date: "2026-04-17"
 
 **Test with interests:**
 ```bash
 curl -X POST http://localhost:8000/api/runs \
   -H "Content-Type: application/json" \
-  -d '{"prompt": "NYC to London next month, love food and museums, moderate budget"}'
+  -d '{
+    "constraints": {
+      "origin": "New York",
+      "destination": "London",
+      "departing_date": "2026-04-01",
+      "returning_date": "2026-04-07",
+      "interests": ["food", "museums"],
+      "budget": "moderate"
+    }
+  }'
 ```
 
 ---
@@ -264,11 +281,12 @@ curl -X POST http://localhost:8000/api/runs \
 
 | Phase | Duration | Notes |
 |-------|----------|-------|
-| ParseRequest | ~500ms | LLM call to extract constraints |
-| Domain Agents | ~3-5s | **Parallel execution** (4 agents) |
+| ParseRequest | ~500ms | Constraint validation |
+| Domain Agents | ~3-5s | **Parallel execution** (4 search agents) |
+| WriterAgent | ~5-6s | 5 parallel LLM normalizations → 31 top picks |
 | EnrichmentAgent | ~4-5s | Tavily extract + LLM parsing |
 | AggregateResults | ~100ms | Merge data |
-| **Total** | **~8-10s** | vs ~20-25s sequential |
+| **Total** | **~13-17s** | vs ~25-30s sequential |
 
 ### Timeouts
 
@@ -313,7 +331,9 @@ Graph node end: RestaurantAgent (durationMs=3200)
 Graph node end: AttractionsAgent (durationMs=2800)
 Graph node end: HotelAgent (durationMs=3500)
 Graph node end: TransportAgent (durationMs=4200)
-Graph node start: EnrichmentAgent    <-- Starts after all 4 complete
+Graph node start: WriterAgent        <-- Starts after all 4 complete
+Graph node end: WriterAgent (durationMs=5800)
+Graph node start: EnrichmentAgent
 Graph node end: EnrichmentAgent (durationMs=4500)
 ```
 
@@ -440,7 +460,14 @@ Create a new recommendation run.
 **Request:**
 ```json
 {
-  "prompt": "string (required)",
+  "constraints": {
+    "origin": "string (required)",
+    "destination": "string (required)",
+    "departing_date": "YYYY-MM-DD (required)",
+    "returning_date": "YYYY-MM-DD (optional)",
+    "interests": ["string (optional)"],
+    "budget": "string (optional)"
+  },
   "options": {}
 }
 ```
@@ -473,7 +500,10 @@ Get run status and results.
     "travel_spots": [...],
     "hotels": [...],
     "car_rentals": [...],
-    "flights": [...]
+    "flights": [...],
+    "references": [...],
+    "agent_statuses": {...},
+    "warnings": [...]
   },
   "warnings": ["string"],
   "durationMs": 0,

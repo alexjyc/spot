@@ -8,10 +8,13 @@ def test_constraints_validate_roundtrip_ok():
             "destination": "Singapore (SIN)",
             "departing_date": "2026-02-10",
             "returning_date": "2026-02-12",
+            # Backward-compatible: these keys are ignored in v2.
+            "budget": "luxury",
+            "interests": ["food"],
         }
     )
-    assert c.budget == "moderate"
-    assert c.interests == []
+    assert not hasattr(c, "budget")
+    assert not hasattr(c, "interests")
 
 
 def test_constraints_reject_return_before_depart():
@@ -28,4 +31,3 @@ def test_constraints_reject_return_before_depart():
         assert "returning_date" in str(e)
     else:
         raise AssertionError("Expected validation to fail")
-

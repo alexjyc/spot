@@ -5,33 +5,32 @@ def build_restaurant_prompt(*, destination: str) -> str:
     """Build system prompt for restaurant normalization."""
     return f"""ROLE: You are a culinary journalist with 15 years reviewing dining scenes worldwide.
 
-TASK: Extract the EXACT top 4 restaurant recommendations for first-day dining in {destination} from the search results.
+TASK: Return the best 4 restaurant recommendations for first-time visitors in {destination}.
 
-STEPS:
-1. Identify distinct restaurants (skip listicle pages without specific names)
-2. Extract fields from source text only
-3. Rank by: reputation signals, first-time-visitor suitability, cuisine diversity
-4. Ensure at least 3 different cuisine types in final list
+RULES:
+- NO DUPLICATES
+- IDEAL 4, Minimum 3 (HARD LIMIT)
 
 FIELDS:
-- id: "restaurant_<destination_code>_<number>" (e.g., restaurant_SEL_1)
+- id: "restaurant_<destination>_<number>" (e.g., restaurant_paris_1)
 - name: Exact restaurant name as stated in source
-- cuisine: Standard label (e.g., "Italian", "Korean BBQ", "Seafood")
-- area: Neighborhood/district — null if not mentioned
+- cuisine: Standard label (e.g., "Italian", "Korean BBQ", "Seafood") — null if not stated
+- area: Neighborhood/district (e.g. "Los Angeles, CA", "Paris, France") — null if not mentioned
 - price_range: "$", "$$", "$$$", or "$$$$" — null if not inferable
 - url: Exact source URL, copied verbatim
 - snippet: 1-2 factual sentences from the source
 - why_recommended: 1-2 sentences on suitability for a first-day visitor
 - tags: 2-4 from [michelin-star, local-favorite, vegetarian-friendly, late-night, outdoor-seating, iconic, hidden-gem, family-friendly, date-spot, quick-bite]
 
-QUALITY:
-GOOD: name matches source exactly; snippet uses source facts; tags are grounded
-BAD: hallucinated names; generic "great food"; tags contradicting source
 
-CONSTRAINTS:
-- Extract ONLY from provided search results — never fabricate
-- If < 4 restaurants found, return what exists — do not pad
-- Copy URLs exactly as they appear"""
+STEPS:
+1. Identify the fields requirement for restaurants
+2. Convert string input to list of sources (each source has title, url, content, and page_content with full page text)
+3. Extract fields from source text and page_content per source
+4. Rank by: reputation signals, first-time-visitor suitability, cuisine diversity
+5. Ensure IDEAL 4 restaurants (at least 3) fit for task goal in final list
+
+CALIBRATION: If < 80% confident a value is correct, set to null."""
 
 
 def build_attractions_prompt(*, destination: str) -> str:
@@ -39,34 +38,30 @@ def build_attractions_prompt(*, destination: str) -> str:
 
     return f"""ROLE: You are a travel editor specializing in curating "essential experiences" lists for first-time visitors.
 
-TASK: Select EXACTLY 4 must-see attractions in {destination} from the search results.
+TASK: Return the best 4 must-see attractions in {destination} for first-time visitors.
 
-SELECTION CRITERIA (priority order):
-1. Iconic significance — defining landmark/experience of {destination}
-2. Experience diversity — span different categories (e.g., cultural + nature + landmark). Avoid too many of the same kind
-3. Practical visitability — open to public, accessible, reasonable for a multi-day trip
-
-STEPS:
-1. Identify all attractions across search results
-2. Classify each by kind
-3. Apply selection criteria — prioritize diversity across kinds
-4. Return up to 4, ranked by significance
+RULES:
+- NO DUPLICATES
+- IDEAL 4, Minimum 3 (HARD LIMIT)
 
 FIELDS:
-- id: "attraction_<destination_code>_<number>"
+- id: "attraction_<destination_city>_<number>"
 - name: Exact name from source
-- kind: One of [museum, park, landmark, temple, shrine, market, district, beach, garden, viewpoint, palace, other]
+- kind: One of [museum, park, landmark, temple, shrine, market, district, beach, garden, viewpoint, palace, other] — null if unclear
 - area: Neighborhood/district — null if not mentioned
 - url: Exact source URL
 - snippet: 1-2 factual sentences from source
 - why_recommended: Why essential for first-time visitor
 - estimated_duration_min: Visit duration in minutes. Use source if available; estimate conservatively (museums: 90-120, parks: 60-90, landmarks: 30-60)
-- time_of_day_fit: List from ["morning", "afternoon", "evening", "any"]
 
-DO NOT:
-- Select too many of the same kind (e.g., 5+ museums)
-- Select multi-day commitments
-- Hallucinate attractions not in search results"""
+STEPS:
+1. Identify the fields requirement for attractions
+2. Convert string input to list of sources (each source has title, url, content, and page_content with full page text)
+3. Extract fields from source text and page_content per source
+4. Rank by: iconic significance, experience diversity, practical visitability
+5. Ensure IDEAL 4 attractions (at least 3) fit for task goal in final list
+
+CALIBRATION: If < 80% confident a value is correct, set to null."""
 
 
 def build_hotel_prompt(
@@ -80,62 +75,74 @@ def build_hotel_prompt(
 
     return f"""ROLE: You are a hotel industry analyst evaluating accommodations for a travel platform, with expertise in value assessment and location scoring.
 
-TASK: Extract EXACTLY 4 hotel recommendations for {destination} from the search results.
+TASK: Return the best 4 hotel recommendations for {destination} for first-time visitors.
+
+RULES:
+- NO DUPLICATES
+- IDEAL 4, Minimum 3 (HARD LIMIT)
+
 
 CONTEXT:
 - Check-in: {departing_date}
 - Check-out: {returning_date or "Not specified"}
 - Stay: {stay_nights or "Not specified"} nights
 
-STEPS:
-1. Identify distinct hotels (not booking platform landing pages)
-2. Extract per-night pricing where available
-3. Prioritize tourist-convenient locations
 
 FIELDS:
-- id: "hotel_<destination_code>_<number>"
+- id: "hotel_<destination_city>_<number>"
 - name: Exact hotel name
 - area: Neighborhood/district — null if not mentioned
-- price_per_night: Per-night rate with currency (e.g., "$150", "KRW 180,000") — null if not extractable
+- price_per_night: Per-night rate with currency (convert to US dollars only) — null if not extractable
 - url: Exact source URL
 - snippet: 1-2 factual sentences from source
 - why_recommended: Why it suits a visitor. Mention location advantages
 - amenities: Confirmed amenities only, from [wifi, pool, gym, breakfast-included, parking, spa, restaurant, airport-shuttle, pet-friendly]
 
-CALIBRATION:
-- price_per_night: ONLY extract if a specific nightly rate is stated. Set null if source only shows total-stay price without night count
-- amenities: Only list what the source explicitly states — do NOT assume chain defaults
 
-DO NOT:
-- Convert total-stay prices to per-night by guessing nights
-- List amenities from general knowledge about hotel chains
-- Fabricate hotels or URLs"""
+STEPS:
+1. Identify the fields requirement for hotels
+2. Convert string input to list of sources (each source has title, url, content, and page_content with full page text)
+3. Extract fields from source text and page_content per source
+4. Rank by: low to high price, location, amenities, rating
+5. Ensure IDEAL 4 hotels (at least 3) fit for task goal in final list
 
 
-def build_car_rental_prompt(*, destination: str, departing_date: str) -> str:
+CALIBRATION: If < 80% confident a value is correct, set to null."""
+
+
+def build_car_rental_prompt(*, destination: str, departing_date: str, returning_date: str | None = None) -> str:
     """Build system prompt for car rental normalization."""
     return f"""ROLE: You are a transportation logistics specialist evaluating car rental options for travelers.
 
-TASK: Extract EXACTLY 3 car rental options for {destination} from the search results.
+TASK: Return the best 3 car rental options for {destination}.
 
 CONTEXT:
 - Pickup date: {departing_date}
+- Return date: {returning_date or "Not specified"}
+
+RULES:
+- NO DUPLICATES
+- IDEAL 3, Minimum 2 (HARD LIMIT)
 
 FIELDS:
-- id: "car_<destination_code>_<number>"
+- id: "car_<destination_city>_<number>"
 - provider: Rental company name (e.g., "Hertz", "Budget") or local providers
-- vehicle_class: One of [economy, compact, sedan, SUV, luxury, minivan, convertible]
-- price_per_day: Daily rate with currency — null if not stated
+- vehicle_class: One of [economy, compact, sedan, SUV, luxury, minivan, convertible] — null if not stated
+- price_per_day: Daily rate with currency (convert to US dollars only) — null if not stated
 - pickup_location: Pickup location (e.g., "Airport Terminal 1") — null if unknown
 - url: Exact source URL
 - why_recommended: 1-2 sentences on why practical for a visitor
 
-CONSTRAINTS:
-- Extract only from search results — never invent providers or prices
-- If result is an aggregator page, extract specific options it mentions
-- Prefer diverse providers — avoid same company twice unless different vehicle classes
 
-CALIBRATION: Set price_per_day to null if source only shows weekly/total rates."""
+STEPS:
+1. Identify the fields requirement for car rentals
+2. Convert string input to list of sources (each source has title, url, content, and page_content with full page text)
+3. Extract fields from source text and page_content per source
+4. Rank by: low to high price, location, vehicle class, provider
+5. Ensure IDEAL 3 car rentals (at least 2) fit for task goal in final list
+
+
+CALIBRATION: If < 80% confident a value is correct, set to null."""
 
 
 def build_flight_prompt(
@@ -149,12 +156,16 @@ def build_flight_prompt(
     """Build system prompt for flight normalization."""
     return f"""ROLE: You are a flight booking analyst evaluating airline options for value, convenience, and reliability.
 
-TASK: Extract EXACTLY 3 flight options from {origin} to {destination} from the search results.
+TASK: Return the best 3 flight options from {origin} to {destination}. Minimum 2.
 
 CONTEXT:
 - Departure: {departing_date}
 - Return: {returning_date or "N/A (one-way)"}
 - Trip type: {trip_type}
+
+RULES:
+- NO DUPLICATES
+- IDEAL 3, Minimum 2 (HARD LIMIT)
 
 FIELDS:
 - id: "flight_<origin_code>_<dest_code>_<number>"
@@ -166,15 +177,16 @@ FIELDS:
 - snippet: 1-2 factual sentences about the option
 - why_recommended: Why it stands out (direct flight, best price, schedule convenience)
 
-RANKING PRIORITY:
-1. Direct/nonstop > connections
-2. Lower price > higher
-3. Major carriers > unknown airlines
 
-DO NOT:
-- Change trip_type from the specified value
-- Fabricate prices — null if source doesn't mention a fare
-- List the same flight/URL twice"""
+STEPS:
+1. Identify the fields requirement for flights
+2. Convert string input to list of sources (each source has title, url, content, and page_content with full page text)
+3. Extract fields from source text and page_content per source
+4. Rank by: direct/nonstop > connections > lower price > higher price > major carriers > unknown airlines
+5. Ensure IDEAL 3 flights (at least 2) fit for task goal in final list
+
+
+CALIBRATION: If < 80% confident a value is correct, set to null."""
 
 
 def build_enrichment_prompt(*, item_type: str) -> str:
@@ -189,6 +201,13 @@ TYPE FOCUS:
 {type_hint}
 
 FIELDS (set to null if confidence < 80%):
+- cuisine: Cuisine label if explicitly stated (restaurants only) — null otherwise
+- kind: Attraction kind if explicitly stated (attractions only) — null otherwise
+- vehicle_class: Vehicle class if explicitly stated (car rentals only) — null otherwise
+- menu_url: Full URL to the menu if explicitly present (restaurants only) — null otherwise
+- reservation_url: Full URL to reservation/booking if explicitly present (restaurants only) — null otherwise
+- parking_details: Parking info/policy text if explicitly stated (hotels only) — null otherwise
+- admission_price: Admission/ticket price as stated (attractions only) — null otherwise
 - price_hint: Price info with currency symbol — null if no price data
 - hours_text: Operating hours as stated on page — copy verbatim, do not reformat
 - address: Full street address (must include street name minimum) — do NOT extract city-only
@@ -235,9 +254,9 @@ Input: "London" → destination_city: "London, UK", destination_code: "LHR"
 
 
 TYPE_HINTS: dict[str, str] = {
-    "restaurant": "Focus on: menu price range, operating hours, phone, full address, reservation policy",
+    "restaurant": "Focus on: menu URL, reservation URL, menu price range, operating hours, phone, full address, reservation policy",
     "attraction": "Focus on: admission/ticket price, visiting hours, phone, full address",
-    "hotel": "Focus on: nightly room rate, check-in/out times, phone, full address",
+    "hotel": "Focus on: nightly room rate, parking policy/details, check-in/out times, phone, full address",
     "car_rental": "Focus on: daily rental rate, office hours, phone, office address",
     "flight": "Focus on: ticket price, flight schedule, booking contact",
 }

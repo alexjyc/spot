@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { getExportUrl } from "../lib/api";
 import type { SpotOnResults, Restaurant, TravelSpot, Hotel, CarRental, Flight } from "../types/api";
+import { ReferenceTabs } from "./ReferenceTabs";
 
 interface ResultsViewProps {
   results: SpotOnResults;
@@ -31,22 +32,54 @@ export default function ResultsView({ results, runId }: ResultsViewProps) {
     hotels = [],
     car_rentals = [],
     flights = [],
+    references = [],
   } = results;
 
   const topRestaurants = restaurants.slice(0, TOP_N_RESTAURANTS);
-  const refRestaurants = restaurants.slice(TOP_N_RESTAURANTS);
-
   const topSpots = travel_spots.slice(0, TOP_N);
-  const refSpots = travel_spots.slice(TOP_N);
-
   const topHotels = hotels.slice(0, TOP_N);
-  const refHotels = hotels.slice(TOP_N);
-
   const topCars = car_rentals.slice(0, TOP_N);
-  const refCars = car_rentals.slice(TOP_N);
-
   const topFlights = flights.slice(0, TOP_N);
-  const refFlights = flights.slice(TOP_N);
+
+  // Helper to map API references to UI items
+  const mapRefs = (section: string) =>
+    references
+      .filter(r => r.section === section)
+      .map(r => ({
+        url: r.url,
+        title: r.title || "Source",
+        detail: r.content,
+        price: undefined // References from common pool don't usually have price
+      }));
+
+  // Prepare categories for the ReferenceTabs
+  const referenceCategories = [
+    {
+      id: "dining",
+      label: "Dining",
+      items: mapRefs("restaurant")
+    },
+    {
+      id: "stays",
+      label: "Stays",
+      items: mapRefs("hotel")
+    },
+    {
+      id: "attractions",
+      label: "Attractions",
+      items: mapRefs("attraction")
+    },
+    {
+      id: "cars",
+      label: "Cars",
+      items: mapRefs("car")
+    },
+    {
+      id: "transport",
+      label: "Transport",
+      items: mapRefs("flight")
+    }
+  ];
 
   return (
     <div style={{ display: "grid", gap: 80, paddingBottom: 60 }}>
@@ -94,13 +127,6 @@ export default function ResultsView({ results, runId }: ResultsViewProps) {
                     <CarRentalCard key={c.id || i} car={c} />
                   ))}
                 </div>
-                {refCars.length > 0 && (
-                  <ReferenceSection title="More car rentals">
-                    {refCars.map((c, i) => (
-                      <RefRow key={c.id || i} name={c.provider} detail={c.vehicle_class} price={c.price_per_day ? `${c.price_per_day}/day` : undefined} url={c.url} />
-                    ))}
-                  </ReferenceSection>
-                )}
               </div>
             )}
 
@@ -112,13 +138,6 @@ export default function ResultsView({ results, runId }: ResultsViewProps) {
                     <FlightCard key={f.id || i} flight={f} />
                   ))}
                 </div>
-                {refFlights.length > 0 && (
-                  <ReferenceSection title="More flights">
-                    {refFlights.map((f, i) => (
-                      <RefRow key={f.id || i} name={f.airline ? `${f.airline} — ${f.route}` : f.route} detail={f.trip_type === "round-trip" ? "Round-trip" : "One-way"} price={f.price_range || undefined} url={f.url} />
-                    ))}
-                  </ReferenceSection>
-                )}
               </div>
             )}
           </div>
@@ -138,13 +157,6 @@ export default function ResultsView({ results, runId }: ResultsViewProps) {
               <HotelCard key={h.id || i} hotel={h} />
             ))}
           </div>
-          {refHotels.length > 0 && (
-            <ReferenceSection title="More hotels">
-              {refHotels.map((h, i) => (
-                <RefRow key={h.id || i} name={h.name} detail={h.why_recommended?.slice(0, 60)} price={h.price_per_night ? `${h.price_per_night}/night` : undefined} url={h.url} />
-              ))}
-            </ReferenceSection>
-          )}
         </section>
       )}
 
@@ -161,13 +173,6 @@ export default function ResultsView({ results, runId }: ResultsViewProps) {
               <RestaurantCard key={r.id || i} restaurant={r} />
             ))}
           </div>
-          {refRestaurants.length > 0 && (
-            <ReferenceSection title="More restaurants">
-              {refRestaurants.map((r, i) => (
-                <RefRow key={r.id || i} name={r.name} detail={[r.cuisine, r.area].filter(Boolean).join(" · ")} price={r.price_range || undefined} url={r.url} />
-              ))}
-            </ReferenceSection>
-          )}
         </section>
       )}
 
@@ -184,15 +189,11 @@ export default function ResultsView({ results, runId }: ResultsViewProps) {
               <AttractionCard key={t.id || i} attraction={t} />
             ))}
           </div>
-          {refSpots.length > 0 && (
-            <ReferenceSection title="More attractions">
-              {refSpots.map((t, i) => (
-                <RefRow key={t.id || i} name={t.name} detail={t.kind} url={t.url} />
-              ))}
-            </ReferenceSection>
-          )}
         </section>
       )}
+
+      {/* Reference Footer */}
+      <ReferenceTabs categories={referenceCategories} />
     </div>
   );
 }
@@ -250,6 +251,7 @@ function RefRow({ name, detail, price, url }: { name: string; detail?: string; p
 }
 
 function RestaurantCard({ restaurant }: { restaurant: Restaurant }) {
+  const hasLinks = Boolean(restaurant.menu_url || restaurant.reservation_url);
   return (
     <div style={cardStyle}>
       <div style={{ padding: 24, flex: 1 }}>
@@ -263,7 +265,7 @@ function RestaurantCard({ restaurant }: { restaurant: Restaurant }) {
         </div>
 
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
-          <span style={pillStyle}>{restaurant.cuisine}</span>
+          {restaurant.cuisine && <span style={pillStyle}>{restaurant.cuisine}</span>}
           {restaurant.price_range && <span style={pillStyle}>{restaurant.price_range}</span>}
           {restaurant.area && <span style={secondaryPillStyle}>{restaurant.area}</span>}
         </div>
@@ -289,6 +291,21 @@ function RestaurantCard({ restaurant }: { restaurant: Restaurant }) {
             )}
           </div>
         )}
+
+        {hasLinks && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 14 }}>
+            {restaurant.menu_url && (
+              <a href={restaurant.menu_url} target="_blank" rel="noopener noreferrer" style={inlineLinkStyle}>
+                <FileText size={14} /> <span>Menu</span>
+              </a>
+            )}
+            {restaurant.reservation_url && (
+              <a href={restaurant.reservation_url} target="_blank" rel="noopener noreferrer" style={inlineLinkStyle}>
+                <Table size={14} /> <span>Reservations</span>
+              </a>
+            )}
+          </div>
+        )}
       </div>
 
       <a href={restaurant.url} target="_blank" rel="noopener noreferrer" style={cardFooterLinkStyle}>
@@ -306,7 +323,7 @@ function AttractionCard({ attraction }: { attraction: TravelSpot }) {
         <h3 style={cardTitleStyle}>{attraction.name}</h3>
 
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
-          <span style={pillStyle}>{attraction.kind}</span>
+          {attraction.kind && <span style={pillStyle}>{attraction.kind}</span>}
           {attraction.area && <span style={secondaryPillStyle}>{attraction.area}</span>}
           {attraction.reservation_required && (
             <span style={{ ...pillStyle, background: "#fff0f0", color: "#c62828" }}>
@@ -331,6 +348,11 @@ function AttractionCard({ attraction }: { attraction: TravelSpot }) {
           {attraction.price_hint && (
             <div style={metaItemStyle}>
               <CreditCard size={14} /> <span>{attraction.price_hint}</span>
+            </div>
+          )}
+          {attraction.admission_price && (
+            <div style={metaItemStyle}>
+              <CreditCard size={14} /> <span>{attraction.admission_price}</span>
             </div>
           )}
         </div>
@@ -378,6 +400,14 @@ function HotelCard({ hotel }: { hotel: Hotel }) {
             )}
           </div>
         )}
+
+        {hotel.parking_details && (
+          <div style={metaContainerStyle}>
+            <div style={metaItemStyle}>
+              <Car size={14} /> <span>{hotel.parking_details}</span>
+            </div>
+          </div>
+        )}
       </div>
 
       <a href={hotel.url} target="_blank" rel="noopener noreferrer" style={cardFooterLinkStyle}>
@@ -396,7 +426,11 @@ function CarRentalCard({ car }: { car: CarRental }) {
         {car.price_per_day && <span style={compactPriceStyle}>{car.price_per_day}/day</span>}
       </div>
 
-      <p style={{ fontSize: 15, fontWeight: 500, color: "#1d1d1f", margin: 0 }}>{car.vehicle_class}</p>
+      {car.vehicle_class && (
+        <p style={{ fontSize: 15, fontWeight: 500, color: "#1d1d1f", margin: 0 }}>
+          {car.vehicle_class}
+        </p>
+      )}
 
       {car.pickup_location && (
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, fontSize: 13, color: "#86868b" }}>
@@ -506,6 +540,20 @@ const tertiaryPillStyle: React.CSSProperties = {
   fontSize: 11,
   background: "#f5f5f7",
   color: "#6e6e73",
+};
+
+const inlineLinkStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 6,
+  padding: "8px 12px",
+  borderRadius: 12,
+  border: "1px solid #e5e5ea",
+  background: "#ffffff",
+  color: "#1d1d1f",
+  fontSize: 13,
+  fontWeight: 600,
+  textDecoration: "none",
 };
 
 const ratingBadgeStyle: React.CSSProperties = {

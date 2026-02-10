@@ -26,10 +26,13 @@ class TestNormalizeName:
 
 
 class TestCanonicalizeUrl:
-    def test_strips_query_params(self):
+    def test_strips_tracking_params_but_keeps_meaningful(self):
         result = canonicalize_url("https://example.com/page?utm_source=test&id=1")
-        assert "?" not in result
-        assert result == "https://example.com/page"
+        assert result == "https://example.com/page?id=1"
+
+    def test_sorts_query_params(self):
+        result = canonicalize_url("https://example.com/page?b=2&a=1")
+        assert result == "https://example.com/page?a=1&b=2"
 
     def test_lowercases_netloc(self):
         result = canonicalize_url("https://EXAMPLE.COM/path")

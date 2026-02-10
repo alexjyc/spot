@@ -15,7 +15,10 @@ class RestaurantOutput(BaseModel):
 
     id: str = Field(description="Unique identifier")
     name: str = Field(description="Restaurant name")
-    cuisine: str = Field(description="Cuisine type (e.g., 'Italian', 'Korean BBQ')")
+    cuisine: str | None = Field(
+        default=None,
+        description="Cuisine type (e.g., 'Italian', 'Korean BBQ'). Null if not stated in sources.",
+    )
     area: str | None = Field(default=None, description="Neighborhood or district")
     price_range: str | None = Field(
         default=None, description="Price range (e.g., '$$', '$$$')"
@@ -36,8 +39,12 @@ class AttractionOutput(BaseModel):
 
     id: str = Field(description="Unique identifier")
     name: str = Field(description="Attraction name")
-    kind: str = Field(
-        description="Type of attraction (e.g., 'museum', 'park', 'landmark', 'temple')"
+    kind: str | None = Field(
+        default=None,
+        description=(
+            "Type of attraction (e.g., 'museum', 'park', 'landmark', 'temple'). "
+            "Null if not stated in sources."
+        ),
     )
     area: str | None = Field(default=None, description="Neighborhood or district")
     url: str = Field(description="Source URL for enrichment")
@@ -47,10 +54,6 @@ class AttractionOutput(BaseModel):
     )
     estimated_duration_min: int | None = Field(
         default=None, description="Typical visit duration in minutes"
-    )
-    time_of_day_fit: list[str] = Field(
-        default_factory=list,
-        description="Best times to visit (e.g., ['morning', 'afternoon'])",
     )
 
 
@@ -79,8 +82,9 @@ class CarRentalOutput(BaseModel):
 
     id: str = Field(description="Unique identifier")
     provider: str = Field(description="Rental company name (e.g., 'Hertz', 'Budget')")
-    vehicle_class: str = Field(
-        description="Vehicle type (e.g., 'compact', 'SUV', 'luxury')"
+    vehicle_class: str | None = Field(
+        default=None,
+        description="Vehicle type (e.g., 'compact', 'SUV', 'luxury'). Null if not stated in sources.",
     )
     price_per_day: str | None = Field(
         default=None, description="Per-day rental price (e.g., '$45', '₩60,000')"
@@ -119,6 +123,34 @@ class FlightOutput(BaseModel):
 class EnrichedDetails(BaseModel):
     """Enriched details extracted from webpage content."""
 
+    cuisine: str | None = Field(
+        default=None,
+        description="Cuisine label if explicitly stated on page (restaurants only).",
+    )
+    kind: str | None = Field(
+        default=None,
+        description="Attraction kind if explicitly stated on page (attractions only).",
+    )
+    vehicle_class: str | None = Field(
+        default=None,
+        description="Vehicle class if explicitly stated on page (car rentals only).",
+    )
+    menu_url: str | None = Field(
+        default=None,
+        description="Menu link URL if explicitly present on the page (restaurants only).",
+    )
+    reservation_url: str | None = Field(
+        default=None,
+        description="Reservation/booking link URL if explicitly present on the page (restaurants only).",
+    )
+    parking_details: str | None = Field(
+        default=None,
+        description="Parking details/policy text if explicitly stated (hotels only).",
+    )
+    admission_price: str | None = Field(
+        default=None,
+        description="Admission/ticket price as stated on page (attractions only).",
+    )
     price_hint: str | None = Field(
         default=None, description="Additional price information if found"
     )
@@ -167,11 +199,6 @@ class TravelConstraints(BaseModel):
     returning_date: str | None = Field(
         default=None, description="Return date in ISO format, or None for one-way"
     )
-    interests: list[str] = Field(default_factory=list, description="User interests (optional)")
-    budget: str = Field(
-        default="moderate",
-        description="Budget level (optional): budget|moderate|luxury",
-    )
 
     model_config = {"extra": "ignore"}
 
@@ -196,14 +223,6 @@ class TravelConstraints(BaseModel):
             return None
         _parse_iso_date(value)
         return value
-
-    @field_validator("budget")
-    @classmethod
-    def _valid_budget(cls, value: str) -> str:
-        v = (value or "").strip().lower() or "moderate"
-        if v not in {"budget", "moderate", "luxury"}:
-            raise ValueError("budget must be one of: budget, moderate, luxury")
-        return v
 
     @model_validator(mode="after")
     def _validate_dates(self) -> "TravelConstraints":

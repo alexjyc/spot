@@ -25,7 +25,7 @@ Primary entrypoints:
 Source: `backend/app/graph/graph.py`, `backend/app/graph/nodes/parse.py`, `backend/app/graph/nodes/aggregate_results.py`
 
 1. **ParseRequest** (`backend/app/graph/nodes/parse.py`)
-   - Converts a free-form prompt (or accepts structured constraints) into normalized `constraints` for downstream agents.
+   - Validates structured `constraints` (origin, destination, dates) and derives query context for downstream agents.
 2. **Domain Agents** (parallel fan-out; **search only** - return raw results)
    - **RestaurantAgent** (`backend/app/agents/restaurant.py`): returns top 15 raw restaurant search results.
    - **AttractionsAgent** (`backend/app/agents/attractions.py`): returns top 15 raw attraction search results.
@@ -314,16 +314,26 @@ One document per run.
 - `_id`: run id (string, e.g. `run_...`)
 - `status`: `queued | running | done | error | cancelled`
 - `createdAt`, `updatedAt`
-- `prompt`: original prompt (string)
 - `options`: feature flags (e.g. `skip_enrichment`)
-- `constraints`: parsed or provided structured constraints
-- `warnings`: array of strings
-- `final_output`: aggregated output payload (stored on completion)
+- `constraints`: structured TravelConstraints (origin, destination, departing_date, returning_date, interests, budget)
+- `warnings`: array of strings (accumulated from agents)
+- `final_output`: aggregated output (see structure below)
 - `error`: `{ message: string }` on failure
-- `progress.nodes.<NodeName>`: last known `NodeEventPayload` per node
+- `progress.nodes.<NodeName>`: last known `NodeEventPayload` per node (ParseRequest, RestaurantAgent, AttractionsAgent, HotelAgent, TransportAgent, WriterAgent, EnrichmentAgent, AggregateResults)
 - `durationMs`
 - `runType`: `"spot_on"`
 - `apiVersion`: `1`
+
+**`final_output` structure** (when `status=done`):
+
+- `restaurants`: array of 7 RestaurantOutput items
+- `travel_spots`: array of 7 AttractionOutput items
+- `hotels`: array of 7 HotelOutput items
+- `car_rentals`: array of 5 CarRentalOutput items
+- `flights`: array of 5 FlightOutput items
+- `references`: array of raw items not selected as top picks
+- `agent_statuses`: dict of agent_id → status
+- `warnings`: array of warning strings
 
 Indexes (created on startup):
 
@@ -360,7 +370,7 @@ Index:
 
 Source: `backend/app/main.py`
 
-- `POST /api/runs`: create a run, enqueue execution, return `{ runId }`.
+- `POST /api/runs`: create a run with structured `constraints` (origin, destination, dates), enqueue execution, return `{ runId }`.
 - `GET /api/runs/{runId}`: fetch run status + progress + output (when done).
 - `GET /api/runs/{runId}/events`: SSE stream of progress/events.
 - `POST /api/runs/{runId}/cancel`: best-effort cancellation (cancels background task).

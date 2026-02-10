@@ -41,13 +41,13 @@ class TestDedupByUrl:
 
     def test_keeps_first_occurrence(self):
         items = [
-            {"url": "https://example.com/a?q=1", "name": "with-query"},
-            {"url": "https://example.com/a?q=2", "name": "diff-query"},
+            {"url": "https://example.com/a?id=1&utm_source=one", "name": "with-tracking"},
+            {"url": "https://example.com/a?id=1&utm_source=two", "name": "diff-tracking"},
         ]
         result = BaseAgent._dedup_by_url(items)
-        # Both canonicalize to same URL (query stripped)
+        # Both canonicalize to same URL (tracking stripped)
         assert len(result) == 1
-        assert result[0]["name"] == "with-query"
+        assert result[0]["name"] == "with-tracking"
 
     def test_empty_list(self):
         assert BaseAgent._dedup_by_url([]) == []
@@ -86,17 +86,18 @@ class TestDedupByNameAndUrl:
 class TestFlattenSearchResults:
     def test_flattens_results(self):
         search_results = [
-            {"results": [{"title": "A"}, {"title": "B"}]},
-            {"results": [{"title": "C"}]},
+            {"ok": True, "response": {"results": [{"title": "A"}, {"title": "B"}]}},
+            {"ok": True, "response": {"results": [{"title": "C"}]}},
         ]
         result = BaseAgent._flatten_search_results(search_results)
         assert len(result) == 3
 
     def test_skips_exceptions(self):
         search_results = [
-            {"results": [{"title": "A"}]},
-            ValueError("network error"),
-            {"results": [{"title": "B"}]},
+            {"ok": True, "response": {"results": [{"title": "A"}]}},
+            {"ok": False, "error": "network error", "response": None},
+            ValueError("should be ignored"),
+            {"ok": True, "response": {"results": [{"title": "B"}]}},
         ]
         result = BaseAgent._flatten_search_results(search_results)
         assert len(result) == 2

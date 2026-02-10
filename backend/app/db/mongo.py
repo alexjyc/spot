@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import logging
 from datetime import datetime, timezone
 from typing import Any
 
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import ASCENDING
-
-logger = logging.getLogger(__name__)
 
 
 def utc_now() -> datetime:
@@ -44,7 +41,6 @@ class MongoService:
         self,
         run_id: str,
         *,
-        prompt: str | None,
         constraints: dict[str, Any] | None,
         options: dict[str, Any],
     ) -> None:
@@ -53,14 +49,13 @@ class MongoService:
             "status": "queued",
             "createdAt": utc_now(),
             "updatedAt": utc_now(),
-            "prompt": prompt or "",
             "options": options,
             "constraints": constraints,
             "warnings": [],
             "final_output": None,
             "error": None,
             "runType": "spot_on",
-            "apiVersion": 1,
+            "apiVersion": 2,
         }
         await self.runs.insert_one(doc)
 
@@ -71,6 +66,18 @@ class MongoService:
 
     async def get_run(self, run_id: str) -> dict[str, Any] | None:
         return await self.runs.find_one({"_id": run_id})
+
+    async def set_node_progress(
+        self,
+        run_id: str,
+        *,
+        node: str,
+        payload: dict[str, Any],
+    ) -> None:
+        if "." in node or node.startswith("$"):
+            raise ValueError("Invalid node name")
+        patch: dict[str, Any] = {f"progress.nodes.{node}": payload, "updatedAt": utc_now()}
+        await self.runs.update_one({"_id": run_id}, {"$set": patch})
 
     async def append_event(
         self,
@@ -90,18 +97,6 @@ class MongoService:
         }
         await self.run_events.insert_one(doc)
 
-    async def set_node_progress(
-        self,
-        run_id: str,
-        *,
-        node: str,
-        payload: dict[str, Any],
-    ) -> None:
-        if "." in node or node.startswith("$"):
-            raise ValueError("Invalid node name")
-        patch: dict[str, Any] = {f"progress.nodes.{node}": payload, "updatedAt": utc_now()}
-        await self.runs.update_one({"_id": run_id}, {"$set": patch})
-
     async def add_artifact(
         self,
         run_id: str,
@@ -109,7 +104,8 @@ class MongoService:
         type: str,
         payload: dict[str, Any],
         version: int = 1,
-    ) -> None:
+        emit_event: bool = True,
+    ) -> Any:
         doc = {
             "runId": run_id,
             "ts": utc_now(),
@@ -117,20 +113,47 @@ class MongoService:
             "payload": payload,
             "version": version,
         }
-        await self.artifacts.insert_one(doc)
-        await self.append_event(
-            run_id, type="artifact", payload={"type": type, "payload": payload}
+        res = await self.artifacts.insert_one(doc)
+        if emit_event:
+            await self.append_event(
+                run_id, type="artifact", payload={"type": type, "payload": payload}
+            )
+        return res.inserted_id
+
+    async def append_node_end_log(
+        self,
+        run_id: str,
+        *,
+        node: str,
+        input: Any,
+        output: Any,
+        duration_ms: int,
+        error: dict[str, Any] | None = None,
+    ) -> None:
+        input_artifact_id = await self.add_artifact(
+            run_id,
+            type="node_input",
+            payload={"node": node, "input": input},
+            emit_event=False,
+        )
+        output_artifact_id = await self.add_artifact(
+            run_id,
+            type="node_output",
+            payload={"node": node, "output": output},
+            emit_event=False,
         )
 
-    async def list_events_since(
-        self, run_id: str, since: datetime
-    ) -> list[dict[str, Any]]:
-        cursor = (
-            self.run_events.find({"runId": run_id, "ts": {"$gt": since}})
-            .sort("ts", ASCENDING)
-            .limit(200)
-        )
-        return await cursor.to_list(length=200)
+        payload: dict[str, Any] = {
+            "kind": "node_end_io",
+            "node": node,
+            "durationMs": duration_ms,
+            "input": {"artifactId": str(input_artifact_id), "type": "node_input"},
+            "output": {"artifactId": str(output_artifact_id), "type": "node_output"},
+        }
+        if error:
+            payload["error"] = error
+
+        await self.append_event(run_id, type="log", node=node, payload=payload)
 
     async def list_events_since_cursor(
         self,

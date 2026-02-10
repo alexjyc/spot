@@ -3,9 +3,11 @@
 export interface Restaurant {
   id: string;
   name: string;
-  cuisine: string;
+  cuisine: string | null;
   area?: string;
   price_range?: string;
+  menu_url?: string | null;
+  reservation_url?: string | null;
   url: string;
   snippet?: string;
   why_recommended?: string;
@@ -21,15 +23,15 @@ export interface Restaurant {
 export interface TravelSpot {
   id: string;
   name: string;
-  kind: string;
+  kind: string | null;
   area?: string;
   url: string;
   snippet?: string;
   why_recommended?: string;
   estimated_duration_min?: number;
-  time_of_day_fit?: string[];
   hours_text?: string;
   price_hint?: string;
+  admission_price?: string | null;
   reservation_required?: boolean;
 }
 
@@ -44,12 +46,13 @@ export interface Hotel {
   amenities?: string[];
   phone?: string;
   address?: string;
+  parking_details?: string | null;
 }
 
 export interface CarRental {
   id: string;
   provider: string;
-  vehicle_class?: string;
+  vehicle_class?: string | null;
   price_per_day?: string;
   pickup_location?: string;
   url: string;
@@ -67,6 +70,13 @@ export interface Flight {
   why_recommended?: string;
 }
 
+export interface Reference {
+  title?: string;
+  url: string;
+  content?: string;
+  section: string;
+}
+
 export interface SpotOnResults {
   restaurants?: Restaurant[];
   travel_spots?: TravelSpot[];
@@ -74,6 +84,7 @@ export interface SpotOnResults {
   car_rentals?: CarRental[];
   flights?: Flight[];
   constraints?: Record<string, unknown>;
+  references?: Reference[];
 }
 
 export interface RunProgress {

@@ -79,7 +79,6 @@ def sample_state(sample_constraints):
     """Minimal SpotOnState dict for agent tests."""
     return {
         "runId": "test-run-123",
-        "prompt": "Tokyo to Seoul, March 15-18",
         "constraints": sample_constraints,
         "restaurants": [],
         "travel_spots": [],

@@ -119,7 +119,6 @@ def create_app() -> FastAPI:
                 node="Queue",
                 payload={"node": "Queue", "status": "end", "message": "Dequeued"},
             )
-            await mongo.append_event(run_id, type="log", payload={"message": "Run started"})
 
             graph = deps.graph
             run_doc = await mongo.get_run(run_id)
@@ -158,7 +157,6 @@ def create_app() -> FastAPI:
                     "error": None,
                 },
             )
-            await mongo.append_event(run_id, type="log", payload={"message": "Run completed"})
         except asyncio.CancelledError:
             logging.getLogger(__name__).info("Run cancelled: %s", run_id)
             if mongo:
@@ -169,9 +167,6 @@ def create_app() -> FastAPI:
                         "durationMs": int((time.monotonic() - t0) * 1000),
                         "error": {"message": "Run cancelled"},
                     },
-                )
-                await mongo.append_event(
-                    run_id, type="log", payload={"message": "Run cancelled"}
                 )
             raise
         except Exception as e:
@@ -184,9 +179,6 @@ def create_app() -> FastAPI:
                         "durationMs": int((time.monotonic() - t0) * 1000),
                         "error": {"message": str(e)},
                     },
-                )
-                await mongo.append_event(
-                    run_id, type="log", payload={"message": "Run failed", "error": str(e)}
                 )
         finally:
             app.state.background_tasks.pop(run_id, None)
@@ -218,20 +210,8 @@ def create_app() -> FastAPI:
         options = dict(req.options or {})
         constraints = req.constraints.model_dump() if req.constraints else None
 
-        prompt = None
-        if req.constraints:
-            prompt = (
-                f"From {req.constraints.origin} to {req.constraints.destination}, "
-                f"departing {req.constraints.departing_date}"
-                + (
-                    f", returning {req.constraints.returning_date}"
-                    if req.constraints.returning_date
-                    else ""
-                )
-            )
         await mongo.create_run(
             run_id,
-            prompt=prompt,
             constraints=constraints,
             options=options,
         )

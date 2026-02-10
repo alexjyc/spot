@@ -9,8 +9,26 @@ logger = logging.getLogger(__name__)
 
 
 def _merge(items: list[dict[str, Any]], enriched: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
-    """Merge enrichment data into domain agent results."""
-    return [{**it, **enriched.get(it["id"], {})} for it in items]
+    """Merge enrichment data into domain agent results.
+
+    Rule: add all new fields from enrichment, but do not overwrite non-empty values
+    already present in the item. This lets Writer provide fields when supported by
+    search snippets, while enrichment backfills missing values from page content.
+    """
+
+    merged: list[dict[str, Any]] = []
+    for it in items:
+        extra = enriched.get(it.get("id", ""), {})
+        if not extra:
+            merged.append(it)
+            continue
+
+        out = dict(it)
+        for k, v in extra.items():
+            if k not in out or out[k] in (None, "", [], {}):
+                out[k] = v
+        merged.append(out)
+    return merged
 
 
 async def aggregate_results(state: dict[str, Any], *, deps: Any) -> dict[str, Any]:

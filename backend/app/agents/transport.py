@@ -17,8 +17,8 @@ class TransportAgent(BaseAgent):
     """
 
     TIMEOUT_SECONDS = 40
-    CAR_TOP_N = 15
-    FLIGHT_TOP_N = 15
+    CAR_TOP_N = 20
+    FLIGHT_TOP_N = 20
 
     async def execute(self, state: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -30,8 +30,8 @@ class TransportAgent(BaseAgent):
             )
 
             car_results, flight_results = await asyncio.gather(
-                self._search_car_rentals(qctx),
-                self._search_flights(qctx),
+                self._search_car_rentals(qctx, run_id=state.get("runId")),
+                self._search_flights(qctx, run_id=state.get("runId")),
                 return_exceptions=True,
             )
 
@@ -87,7 +87,7 @@ class TransportAgent(BaseAgent):
             return self._failed_result(str(e))
 
     async def _search_car_rentals(
-        self, qctx: dict[str, Any]
+        self, qctx: dict[str, Any], *, run_id: str | None
     ) -> list[dict[str, Any]]:
         city = qctx.get("destination_city")
         airport = qctx.get("destination_code")
@@ -101,24 +101,27 @@ class TransportAgent(BaseAgent):
         if returning_date:
             returning_date = " -> " + returning_date
 
-        queries = [
+        primary = [
             f"car rental {airport} airport pickup {departing_date}{returning_date}",
             f"best car rental deals {city} {departing_date}{returning_date}",
             f"local car rental companies {city} tourist {departing_date}{returning_date}",
         ]
+        fallback = [
+            f"car rental {city} airport hours phone address",
+            f"economy SUV minivan car rental {city} price per day",
+        ]
 
-        search_results = await self._parallel_search(queries)
-        all_items = self._flatten_search_results(search_results)
-
-        if not all_items:
-            self.logger.warning("No car rental search results")
-            return []
-
-        unique = self._dedup_by_url(all_items)
-        return self._top_by_score(unique, n=self.CAR_TOP_N)
+        return await self._search_with_fallback(
+            primary,
+            fallback,
+            top_n=self.CAR_TOP_N,
+            run_id=run_id,
+            label="cars",
+            include_raw_content=True,
+        )
 
     async def _search_flights(
-        self, qctx: dict[str, Any]
+        self, qctx: dict[str, Any], *, run_id: str | None
     ) -> list[dict[str, Any]]:
         origin_airport = qctx.get("origin_code")
         destination_airport = qctx.get("destination_code")
@@ -131,19 +134,22 @@ class TransportAgent(BaseAgent):
 
         if returning_date:
             returning_date = " -> " + returning_date
-            
-        queries = [
+
+        primary = [
             f"flights {origin_airport} -> {destination_airport} {departing_date}{returning_date}",
             f"cheap flights {origin_airport} -> {destination_airport} {departing_date}{returning_date}",
             f"direct nonstop flights {origin_airport} -> {destination_airport} {departing_date}{returning_date}",
         ]
+        fallback = [
+            f"best airlines for flights {origin_airport} to {destination_airport} direct",
+            f"flight schedule {origin_airport} to {destination_airport} {departing_date}{returning_date}",
+        ]
 
-        search_results = await self._parallel_search(queries)
-        all_items = self._flatten_search_results(search_results)
-
-        if not all_items:
-            self.logger.warning("No flight search results")
-            return []
-
-        unique = self._dedup_by_url(all_items)
-        return self._top_by_score(unique, n=self.FLIGHT_TOP_N)
+        return await self._search_with_fallback(
+            primary,
+            fallback,
+            top_n=self.FLIGHT_TOP_N,
+            run_id=run_id,
+            label="flights",
+            include_raw_content=True,
+        )

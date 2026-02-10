@@ -28,7 +28,7 @@ from app.schemas.spot_on import (
     RestaurantList,
     RestaurantOutput,
 )
-from app.utils.dedup import canonicalize_url, normalize_name
+from app.utils.dedup import canonicalize_url
 
 logger = logging.getLogger(__name__)
 
@@ -42,11 +42,26 @@ class WriterAgent(BaseAgent):
 
     TIMEOUT_SECONDS = 40
 
-    RESTAURANT_TOP = 7
-    ATTRACTION_TOP = 7
-    HOTEL_TOP = 7
-    CAR_TOP = 5
-    FLIGHT_TOP = 5
+    # Main pick caps (match prompt targets)
+    RESTAURANT_TOP = 4
+    ATTRACTION_TOP = 4
+    HOTEL_TOP = 4
+    CAR_TOP = 3
+    FLIGHT_TOP = 3
+
+    # LLM input sizes
+    RESTAURANT_LLM_IN = 7
+    ATTRACTION_LLM_IN = 7
+    HOTEL_LLM_IN = 7
+    CAR_LLM_IN = 5
+    FLIGHT_LLM_IN = 5
+
+    # Reference pool sizes
+    RESTAURANT_REF_POOL = 10
+    ATTRACTION_REF_POOL = 10
+    HOTEL_REF_POOL = 10
+    CAR_REF_POOL = 8
+    FLIGHT_REF_POOL = 8
 
     async def execute(self, state: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -69,19 +84,20 @@ class WriterAgent(BaseAgent):
             )
 
             results = await asyncio.gather(
-                self._normalize_restaurants(raw["restaurants"], qctx),
-                self._normalize_attractions(raw["travel_spots"], qctx),
-                self._normalize_hotels(raw["hotels"], qctx),
-                self._normalize_cars(raw["car_rentals"], qctx),
-                self._normalize_flights(raw["flights"], qctx),
+                self._normalize_restaurants(raw["restaurants"], qctx, run_id=state.get("runId")),
+                self._normalize_attractions(raw["travel_spots"], qctx, run_id=state.get("runId")),
+                self._normalize_hotels(raw["hotels"], qctx, run_id=state.get("runId")),
+                self._normalize_cars(raw["car_rentals"], qctx, run_id=state.get("runId")),
+                self._normalize_flights(raw["flights"], qctx, run_id=state.get("runId")),
                 return_exceptions=True,
             )
 
-            restaurants = results[0] if not isinstance(results[0], Exception) else []
-            attractions = results[1] if not isinstance(results[1], Exception) else []
-            hotels = results[2] if not isinstance(results[2], Exception) else []
-            cars = results[3] if not isinstance(results[3], Exception) else []
-            flights = results[4] if not isinstance(results[4], Exception) else []
+            _empty: tuple[list, list[dict[str, Any]]] = ([], [])
+            restaurants, rest_refs = results[0] if not isinstance(results[0], Exception) else _empty
+            attractions, attr_refs = results[1] if not isinstance(results[1], Exception) else _empty
+            hotels, hotel_refs = results[2] if not isinstance(results[2], Exception) else _empty
+            cars, car_refs = results[3] if not isinstance(results[3], Exception) else _empty
+            flights, flight_refs = results[4] if not isinstance(results[4], Exception) else _empty
 
             # Log any failures
             warnings: list[str] = []
@@ -95,16 +111,8 @@ class WriterAgent(BaseAgent):
                     self.logger.error(f"WriterAgent {name} normalization failed: {res}")
                     warnings.append(f"Writer: {name} normalization failed")
 
-            # Compute references — raw items not selected as top picks
-            selected_urls: set[str] = set()
-            for group in [restaurants, attractions, hotels, cars, flights]:
-                for item in group:
-                    selected_urls.add(canonicalize_url(item.url))
-
-            all_raw = [item for items in raw.values() for item in items]
-            references = [
-                r for r in all_raw if canonicalize_url(r.get("url", "")) not in selected_urls
-            ]
+            # Merge per-section references
+            references: list[dict[str, Any]] = rest_refs + attr_refs + hotel_refs + car_refs + flight_refs
 
             self.logger.info(
                 "WriterAgent completed",
@@ -147,14 +155,14 @@ class WriterAgent(BaseAgent):
     # ------------------------------------------------------------------
 
     async def _normalize_restaurants(
-        self, items: list[dict[str, Any]], qctx: dict[str, Any]
-    ) -> list[RestaurantOutput]:
-        unique = self._dedup_by_url(items)
-        if not unique:
-            return []
+        self, items: list[dict[str, Any]], qctx: dict[str, Any], *, run_id: str | None
+    ) -> tuple[list[RestaurantOutput], list[dict[str, Any]]]:
+        if not items:
+            return [], []
 
-        top = self._top_by_score(unique, n=20)
-        search_text = self._format_search_text(top)
+        ref_pool = self._top_by_score(items, n=self.RESTAURANT_REF_POOL)
+        top = ref_pool[: self.RESTAURANT_LLM_IN]
+        search_text = self._format_search_text(top, include_raw_content=True)
         destination = qctx.get("destination_city")
 
         system_prompt = build_restaurant_prompt(destination=destination)
@@ -165,20 +173,37 @@ class WriterAgent(BaseAgent):
 
         try:
             result = await self.deps.llm.structured(messages, RestaurantList)
-            return self._dedup_by_name_and_url(result.restaurants, top_n=self.RESTAURANT_TOP)
+            picked = result.restaurants[:self.RESTAURANT_TOP]
+            selected_urls = {canonicalize_url(r.url) for r in picked}
+            refs = [
+                {**r, "section": "restaurant"}
+                for r in ref_pool
+                if canonicalize_url(r.get("url", "")) not in selected_urls
+            ]
+            self.logger.info(
+                "%s normalize(restaurants): raw_in=%d top_in=%d llm_out=%d post_dedup=%d refs=%d",
+                self.agent_id,
+                len(items),
+                len(top),
+                len(result.restaurants),
+                len(picked),
+                len(refs),
+                extra={"run_id": run_id},
+            )
+            return picked, refs
         except Exception as e:
             self.logger.error(f"Restaurant normalization failed: {e}", exc_info=True)
-            return []
+            return [], []
 
     async def _normalize_attractions(
-        self, items: list[dict[str, Any]], qctx: dict[str, Any]
-    ) -> list[AttractionOutput]:
-        unique = self._dedup_by_url(items)
-        if not unique:
-            return []
+        self, items: list[dict[str, Any]], qctx: dict[str, Any], *, run_id: str | None
+    ) -> tuple[list[AttractionOutput], list[dict[str, Any]]]:
+        if not items:
+            return [], []
 
-        top = self._top_by_score(unique, n=20)
-        search_text = self._format_search_text(top)
+        ref_pool = self._top_by_score(items, n=self.ATTRACTION_REF_POOL)
+        top = ref_pool[: self.ATTRACTION_LLM_IN]
+        search_text = self._format_search_text(top, include_raw_content=True)
         destination = qctx.get("destination_city")
 
         system_prompt = build_attractions_prompt(destination=destination)
@@ -189,28 +214,37 @@ class WriterAgent(BaseAgent):
 
         try:
             result = await self.deps.llm.structured(messages, AttractionList)
-            # Deduplicate by name
-            seen_names: set[str] = set()
-            deduped: list[AttractionOutput] = []
-            for a in result.attractions:
-                norm_name = normalize_name(a.name)
-                if norm_name not in seen_names:
-                    seen_names.add(norm_name)
-                    deduped.append(a)
-            return deduped[: self.ATTRACTION_TOP]
+            picked = result.attractions[:self.ATTRACTION_TOP]
+            selected_urls = {canonicalize_url(a.url) for a in picked}
+            refs = [
+                {**r, "section": "attraction"}
+                for r in ref_pool
+                if canonicalize_url(r.get("url", "")) not in selected_urls
+            ]
+            self.logger.info(
+                "%s normalize(attractions): raw_in=%d top_in=%d llm_out=%d post_dedup=%d refs=%d",
+                self.agent_id,
+                len(items),
+                len(top),
+                len(result.attractions),
+                len(picked),
+                len(refs),
+                extra={"run_id": run_id},
+            )
+            return picked, refs
         except Exception as e:
             self.logger.error(f"Attractions normalization failed: {e}", exc_info=True)
-            return []
+            return [], []
 
     async def _normalize_hotels(
-        self, items: list[dict[str, Any]], qctx: dict[str, Any]
-    ) -> list[HotelOutput]:
-        unique = self._dedup_by_url(items)
-        if not unique:
-            return []
+        self, items: list[dict[str, Any]], qctx: dict[str, Any], *, run_id: str | None
+    ) -> tuple[list[HotelOutput], list[dict[str, Any]]]:
+        if not items:
+            return [], []
 
-        top = self._top_by_score(unique, n=20)
-        search_text = self._format_search_text(top)
+        ref_pool = self._top_by_score(items, n=self.HOTEL_REF_POOL)
+        top = ref_pool[: self.HOTEL_LLM_IN]
+        search_text = self._format_search_text(top, include_raw_content=True)
 
         destination = qctx.get("destination_city")
         departing_date = qctx.get("departing_date", "")
@@ -223,6 +257,7 @@ class WriterAgent(BaseAgent):
             returning_date=returning_date,
             stay_nights=stay_nights,
         )
+
         messages = [
             SystemMessage(content=system_prompt),
             HumanMessage(content=f"Search results:\n\n{search_text}"),
@@ -230,18 +265,37 @@ class WriterAgent(BaseAgent):
 
         try:
             result = await self.deps.llm.structured(messages, HotelList)
-            return self._dedup_by_name_and_url(result.hotels, top_n=self.HOTEL_TOP)
+            picked = result.hotels[:self.HOTEL_TOP]
+            selected_urls = {canonicalize_url(h.url) for h in picked}
+            refs = [
+                {**r, "section": "hotel"}
+                for r in ref_pool
+                if canonicalize_url(r.get("url", "")) not in selected_urls
+            ]
+            self.logger.info(
+                "%s normalize(hotels): raw_in=%d top_in=%d llm_out=%d post_dedup=%d refs=%d",
+                self.agent_id,
+                len(items),
+                len(top),
+                len(result.hotels),
+                len(picked),
+                len(refs),
+                extra={"run_id": run_id},
+            )
+            return picked, refs
         except Exception as e:
             self.logger.error(f"Hotel normalization failed: {e}", exc_info=True)
-            return []
+            return [], []
 
     async def _normalize_cars(
-        self, items: list[dict[str, Any]], qctx: dict[str, Any]
-    ) -> list[CarRentalOutput]:
+        self, items: list[dict[str, Any]], qctx: dict[str, Any], *, run_id: str | None
+    ) -> tuple[list[CarRentalOutput], list[dict[str, Any]]]:
         if not items:
-            return []
+            return [], []
 
-        search_text = self._format_search_text(items, content_limit=400)
+        ref_pool = self._top_by_score(items, n=self.CAR_REF_POOL)
+        top = ref_pool[: self.CAR_LLM_IN]
+        search_text = self._format_search_text(top, content_limit=400, include_raw_content=True)
         destination = qctx.get("destination_city")
         departing_date = qctx.get("departing_date")
 
@@ -255,18 +309,37 @@ class WriterAgent(BaseAgent):
 
         try:
             result = await self.deps.llm.structured(messages, CarRentalList)
-            return result.cars[: self.CAR_TOP]
+            picked = result.cars[: self.CAR_TOP]
+            selected_urls = {canonicalize_url(c.url) for c in picked}
+            refs = [
+                {**r, "section": "car"}
+                for r in ref_pool
+                if canonicalize_url(r.get("url", "")) not in selected_urls
+            ]
+            self.logger.info(
+                "%s normalize(cars): raw_in=%d top_in=%d llm_out=%d picked=%d refs=%d",
+                self.agent_id,
+                len(items),
+                len(top),
+                len(result.cars),
+                len(picked),
+                len(refs),
+                extra={"run_id": run_id},
+            )
+            return picked, refs
         except Exception as e:
             self.logger.error(f"Car rental normalization failed: {e}", exc_info=True)
-            return []
+            return [], []
 
     async def _normalize_flights(
-        self, items: list[dict[str, Any]], qctx: dict[str, Any]
-    ) -> list[FlightOutput]:
+        self, items: list[dict[str, Any]], qctx: dict[str, Any], *, run_id: str | None
+    ) -> tuple[list[FlightOutput], list[dict[str, Any]]]:
         if not items:
-            return []
+            return [], []
 
-        search_text = self._format_search_text(items, content_limit=400)
+        ref_pool = self._top_by_score(items, n=self.FLIGHT_REF_POOL)
+        top = ref_pool[: self.FLIGHT_LLM_IN]
+        search_text = self._format_search_text(top, content_limit=400, include_raw_content=True)
         origin = qctx.get("origin_code") if qctx.get("origin_code") else qctx.get("origin_city")
         destination = qctx.get("destination_code") if qctx.get("destination_code") else qctx.get("destination_city")
         departing_date = qctx.get("departing_date")
@@ -287,7 +360,24 @@ class WriterAgent(BaseAgent):
 
         try:
             result = await self.deps.llm.structured(messages, FlightList)
-            return result.flights[: self.FLIGHT_TOP]
+            picked = result.flights[: self.FLIGHT_TOP]
+            selected_urls = {canonicalize_url(f.url) for f in picked}
+            refs = [
+                {**r, "section": "flight"}
+                for r in ref_pool
+                if canonicalize_url(r.get("url", "")) not in selected_urls
+            ]
+            self.logger.info(
+                "%s normalize(flights): raw_in=%d top_in=%d llm_out=%d picked=%d refs=%d",
+                self.agent_id,
+                len(items),
+                len(top),
+                len(result.flights),
+                len(picked),
+                len(refs),
+                extra={"run_id": run_id},
+            )
+            return picked, refs
         except Exception as e:
             self.logger.error(f"Flight normalization failed: {e}", exc_info=True)
-            return []
+            return [], []
