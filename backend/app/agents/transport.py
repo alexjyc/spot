@@ -17,8 +17,8 @@ class TransportAgent(BaseAgent):
     """
 
     TIMEOUT_SECONDS = 40
-    CAR_TOP_N = 20
-    FLIGHT_TOP_N = 20
+    CAR_TOP_N = 10
+    FLIGHT_TOP_N = 10
 
     async def execute(self, state: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -117,7 +117,8 @@ class TransportAgent(BaseAgent):
             top_n=self.CAR_TOP_N,
             run_id=run_id,
             label="cars",
-            include_raw_content=True,
+            include_domains=["kayak.com", "rentalcars.com", "hertz.com",
+                             "enterprise.com", "avis.com", "budget.com", "sixt.com"],
         )
 
     async def _search_flights(
@@ -151,5 +152,6 @@ class TransportAgent(BaseAgent):
             top_n=self.FLIGHT_TOP_N,
             run_id=run_id,
             label="flights",
-            include_raw_content=True,
+            include_domains=["google.com/flights", "kayak.com", "skyscanner.com",
+                             "expedia.com", "trip.com", "momondo.com"],
         )

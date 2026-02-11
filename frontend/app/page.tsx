@@ -231,7 +231,7 @@ export default function Page() {
         setError("Request timed out");
         setLoading(false);
         cleanup();
-      }, 150000);
+      }, 300000);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
       setLoading(false);
@@ -246,9 +246,10 @@ export default function Page() {
     "AttractionsAgent",
     "HotelAgent",
     "TransportAgent",
-    "WriterAgent",
-    ...(enrichmentEnabled ? ["EnrichmentAgent"] : []),
-    "AggregateResults",
+    "NormalizeAgent",
+    ...(enrichmentEnabled ? ["EnrichAgent"] : []),
+    "QualitySplit",
+    "ReportWriter",
   ];
 
   return (

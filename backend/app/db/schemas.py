@@ -58,19 +58,3 @@ class RunGetResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     error: RunError | None = None
     durationMs: int | None = None
-
-
-class RunEvent(BaseModel):
-    runId: str
-    ts: datetime
-    type: Literal["node", "artifact", "log"]
-    node: str | None = None
-    payload: dict[str, Any] = Field(default_factory=dict)
-
-
-class Artifact(BaseModel):
-    runId: str
-    ts: datetime
-    type: str
-    payload: dict[str, Any]
-    version: int = 1

@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     openai_api_key: str = Field(default="", validation_alias="OPENAI_API_KEY")
-    openai_model: str = Field(default="gpt-5-nano", validation_alias="OPENAI_MODEL")
+    openai_model: str = Field(default="gpt-4o-mini", validation_alias="OPENAI_MODEL")
     openai_timeout: int = Field(default=120, validation_alias="OPENAI_TIMEOUT")
     tavily_api_key: str = Field(default="", validation_alias="TAVILY_API_KEY")
     tavily_search_timeout: int = Field(default=10, validation_alias="TAVILY_SEARCH_TIMEOUT")

@@ -20,13 +20,28 @@ class RestaurantOutput(BaseModel):
         description="Cuisine type (e.g., 'Italian', 'Korean BBQ'). Null if not stated in sources.",
     )
     area: str | None = Field(default=None, description="Neighborhood or district")
+    operating_hours: str | None = Field(
+        default=None, description="Operating hours (e.g., 'Mon-Fri 9am-5pm')"
+    )
     price_range: str | None = Field(
         default=None, description="Price range (e.g., '$$', '$$$')"
     )
     url: str = Field(description="Source URL for enrichment")
+    menu_url: str | None = Field(
+        default=None,
+        description="Menu link URL if explicitly present on the page.",
+    )
+    reservation_url: str | None = Field(
+        default=None,
+        description="Reservation/booking link URL if explicitly present on the page.",
+    )
     snippet: str = Field(description="Brief description from search")
     why_recommended: str = Field(
         description="1-2 sentence explanation of why this is recommended"
+    )
+    rating: float | None = Field(
+        default=None,
+        description="Rating score (e.g., 4.5 out of 5) from a review source. Null if not stated.",
     )
     tags: list[str] = Field(
         default_factory=list,
@@ -47,7 +62,17 @@ class AttractionOutput(BaseModel):
         ),
     )
     area: str | None = Field(default=None, description="Neighborhood or district")
+    operating_hours: str | None = Field(
+        default=None, description="Operating hours (e.g., 'Mon-Fri 9am-5pm')"
+    )
     url: str = Field(description="Source URL for enrichment")
+    reservation_url: str | None = Field(
+        default=None,
+        description="Reservation/booking link URL if explicitly present on the page.",
+    )
+    admission_price: str | None = Field(
+        default=None, description="Admission price (exchange to US Dollar)"
+    )
     snippet: str = Field(description="Brief description from search")
     why_recommended: str = Field(
         description="1-2 sentence explanation of why this is recommended"
@@ -64,7 +89,7 @@ class HotelOutput(BaseModel):
     name: str = Field(description="Hotel name")
     area: str | None = Field(default=None, description="Neighborhood or district")
     price_per_night: str | None = Field(
-        default=None, description="Per-night price (e.g., '$150', '₩180,000')"
+        default=None, description="Per-night price (exchange to US Dollar)"
     )
     url: str = Field(description="Source URL for enrichment")
     snippet: str = Field(description="Brief description from search")
@@ -87,7 +112,7 @@ class CarRentalOutput(BaseModel):
         description="Vehicle type (e.g., 'compact', 'SUV', 'luxury'). Null if not stated in sources.",
     )
     price_per_day: str | None = Field(
-        default=None, description="Per-day rental price (e.g., '$45', '₩60,000')"
+        default=None, description="Per-day rental price (exchange to US Dollar)"
     )
     pickup_location: str | None = Field(
         default=None, description="Pickup location (e.g., 'Airport', 'Downtown')"
@@ -111,56 +136,12 @@ class FlightOutput(BaseModel):
         description="One-way or round-trip"
     )
     price_range: str | None = Field(
-        default=None, description="Price range (e.g., '$200-$350')"
+        default=None, description="Price range (exchange to US Dollar)"
     )
     url: str = Field(description="Source URL for enrichment")
     snippet: str = Field(description="Brief description from search")
     why_recommended: str = Field(
         description="1-2 sentence explanation of why this is recommended"
-    )
-
-
-class EnrichedDetails(BaseModel):
-    """Enriched details extracted from webpage content."""
-
-    cuisine: str | None = Field(
-        default=None,
-        description="Cuisine label if explicitly stated on page (restaurants only).",
-    )
-    kind: str | None = Field(
-        default=None,
-        description="Attraction kind if explicitly stated on page (attractions only).",
-    )
-    vehicle_class: str | None = Field(
-        default=None,
-        description="Vehicle class if explicitly stated on page (car rentals only).",
-    )
-    menu_url: str | None = Field(
-        default=None,
-        description="Menu link URL if explicitly present on the page (restaurants only).",
-    )
-    reservation_url: str | None = Field(
-        default=None,
-        description="Reservation/booking link URL if explicitly present on the page (restaurants only).",
-    )
-    parking_details: str | None = Field(
-        default=None,
-        description="Parking details/policy text if explicitly stated (hotels only).",
-    )
-    admission_price: str | None = Field(
-        default=None,
-        description="Admission/ticket price as stated on page (attractions only).",
-    )
-    price_hint: str | None = Field(
-        default=None, description="Additional price information if found"
-    )
-    hours_text: str | None = Field(
-        default=None, description="Opening hours text (e.g., 'Mon-Fri 9am-5pm')"
-    )
-    address: str | None = Field(default=None, description="Full address")
-    phone: str | None = Field(default=None, description="Phone number")
-    reservation_required: bool | None = Field(
-        default=None, description="Whether reservation is required"
     )
 
 
@@ -365,3 +346,152 @@ class FlightList(BaseModel):
     """Wrapper for LLM structured output - list of flights."""
 
     flights: list[FlightOutput]
+
+
+# =========================================================================
+# Enrichment Schemas (used by GapFiller for targeted LLM extraction)
+# =========================================================================
+
+
+class RestaurantEnrichment(BaseModel):
+    """Fields the GapFiller can extract for a restaurant."""
+
+    operating_hours: str | None = None
+    menu_url: str | None = None
+    reservation_url: str | None = None
+    price_range: str | None = None
+    cuisine: str | None = None
+    rating: float | None = None
+
+
+class AttractionEnrichment(BaseModel):
+    """Fields the GapFiller can extract for an attraction."""
+
+    operating_hours: str | None = None
+    admission_price: str | None = None
+    reservation_url: str | None = None
+    kind: str | None = None
+
+
+class HotelEnrichment(BaseModel):
+    """Fields the GapFiller can extract for a hotel."""
+
+    price_per_night: str | None = None
+    amenities: list[str] = Field(default_factory=list)
+
+
+class CarRentalEnrichment(BaseModel):
+    """Fields the GapFiller can extract for a car rental."""
+
+    price_per_day: str | None = None
+    vehicle_class: str | None = None
+    operating_hours: str | None = None
+
+
+class FlightEnrichment(BaseModel):
+    """Fields the GapFiller can extract for a flight."""
+    price_range: str | None = None
+
+
+# =========================================================================
+# Enrichment Query Schemas (used by EnrichAgent for LLM-generated queries)
+# =========================================================================
+
+
+class EnrichmentQuery(BaseModel):
+    """A targeted search query for a specific item's missing fields."""
+
+    item_id: str = Field(description="ID of the item needing enrichment")
+    query: str = Field(description="Targeted search query to find missing information")
+
+
+class EnrichmentQueryList(BaseModel):
+    """Wrapper for LLM structured output - list of enrichment queries."""
+
+    queries: list[EnrichmentQuery]
+
+
+# =========================================================================
+# Report / Itinerary Schemas (used by ReportWriter)
+# =========================================================================
+
+
+class ItinerarySlot(BaseModel):
+    """A single time slot in a day's itinerary."""
+
+    time_of_day: Literal["morning", "afternoon", "evening"] = Field(
+        description="Time of day for this activity"
+    )
+    activity: str = Field(description="Description of the activity")
+    item_name: str = Field(description="Name of the place/service")
+    item_type: Literal["restaurant", "attraction", "hotel", "transport"] = Field(
+        description="Category of the item"
+    )
+    estimated_cost: str | None = Field(
+        default=None, description="Estimated cost for this activity"
+    )
+
+
+class ItineraryDay(BaseModel):
+    """A single day in the travel itinerary."""
+
+    day_number: int = Field(description="Day number (1, 2, 3)")
+    date: str = Field(description="Date in ISO format or descriptive label")
+    slots: list[ItinerarySlot] = Field(description="Activities for this day")
+    daily_total: str = Field(description="Estimated total spend for this day")
+
+
+class FlightSummaryItem(BaseModel):
+    name: str
+    price: str
+    route: str
+
+
+class CarRentalSummaryItem(BaseModel):
+    name: str
+    price_per_day: str
+    vehicle_class: str
+
+
+class HotelSummaryItem(BaseModel):
+    name: str
+    price_per_night: str
+    area: str
+
+
+class AttractionSummaryItem(BaseModel):
+    name: str
+    admission_price: str
+    kind: str
+
+
+class RestaurantSummaryItem(BaseModel):
+    name: str
+    cuisine: str
+    price_range: str
+
+
+class TravelReport(BaseModel):
+    """Complete travel report with summary tables and itinerary."""
+
+    flight_summary: list[FlightSummaryItem] = Field(
+        default_factory=list, description="Flight options summary"
+    )
+    car_rental_summary: list[CarRentalSummaryItem] = Field(
+        default_factory=list, description="Car rental options summary"
+    )
+    hotel_summary: list[HotelSummaryItem] = Field(
+        default_factory=list, description="Hotel options summary"
+    )
+    attraction_summary: list[AttractionSummaryItem] = Field(
+        default_factory=list, description="Attraction options summary"
+    )
+    restaurant_summary: list[RestaurantSummaryItem] = Field(
+        default_factory=list, description="Restaurant options summary"
+    )
+    itinerary: list[ItineraryDay] = Field(
+        description="3-day itinerary with morning/afternoon/evening slots"
+    )
+    total_estimated_budget: str = Field(
+        description="Total estimated budget for the trip"
+    )

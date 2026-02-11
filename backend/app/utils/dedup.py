@@ -52,10 +52,3 @@ def canonicalize_url(url: str) -> str:
 
     # Drop fragments; keep meaningful query params for dedup stability.
     return urlunparse((scheme, netloc, path, "", query, ""))
-
-
-def domain(url: str) -> str:
-    try:
-        return urlparse(url).netloc.lower()
-    except Exception:
-        return ""

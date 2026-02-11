@@ -58,7 +58,7 @@ def create_app() -> FastAPI:
                 deps.llm = LLMService(
                     settings.openai_api_key,
                     settings.openai_model,
-                    timeout_seconds=float(settings.openai_timeout),
+                    timeout_seconds=float(settings.openai_timeout)
                 )
         except Exception as e:
             logging.getLogger(__name__).error("OpenAI init failed: %s", e)

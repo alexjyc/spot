@@ -6,7 +6,6 @@ from typing import Annotated, Any, Literal, TypedDict
 
 class SpotOnState(TypedDict, total=False):
     """State for Spot On multi-agent travel recommendation system."""
-
     # Input
     runId: str
 
@@ -37,7 +36,15 @@ class SpotOnState(TypedDict, total=False):
     references: list[dict[str, Any]]
 
     # Enrichment
-    enriched_data: dict[str, dict[str, Any]]  # item_id -> {price, hours, address, phone}
+    enriched_data: dict[str, dict[str, Any]]  # item_id -> enriched fields
+    enrichment_loop_count: int
+    enrichment_gap_ratio: float
+
+    # Quality split outputs
+    main_results: dict[str, list[dict[str, Any]]]
+
+    # Report
+    travel_report: dict[str, Any]
 
     # Derived deterministic context
     query_context: dict[str, Any]
@@ -48,9 +55,9 @@ class SpotOnState(TypedDict, total=False):
     # Metadata
     agent_statuses: Annotated[
         dict[str, str],
-        operator.or_  # Merge dicts: {a: 1} | {b: 2} = {a: 1, b: 2}
-    ]  # agent_id -> "completed"|"failed"|"partial"|"skipped"
-    warnings: Annotated[list[str], operator.add]  # Merge lists from parallel agents
+        operator.or_ 
+    ]
+    warnings: Annotated[list[str], operator.add]
     duration_ms: int
 
     # Final

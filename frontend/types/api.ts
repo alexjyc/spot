@@ -1,23 +1,20 @@
-/** Shared TypeScript interfaces for the Spot On frontend. */
+/** Shared TypeScript interfaces for the Spot On frontend.
+ */
 
 export interface Restaurant {
   id: string;
   name: string;
   cuisine: string | null;
   area?: string;
+  operating_hours?: string | null;
   price_range?: string;
+  url: string;
   menu_url?: string | null;
   reservation_url?: string | null;
-  url: string;
   snippet?: string;
   why_recommended?: string;
+  rating?: number | null;
   tags?: string[];
-  rating?: number;
-  hours_text?: string;
-  phone?: string;
-  address?: string;
-  price_hint?: string;
-  reservation_required?: boolean;
 }
 
 export interface TravelSpot {
@@ -25,14 +22,13 @@ export interface TravelSpot {
   name: string;
   kind: string | null;
   area?: string;
+  operating_hours?: string | null;
   url: string;
+  reservation_url?: string | null;
+  admission_price?: string | null;
   snippet?: string;
   why_recommended?: string;
   estimated_duration_min?: number;
-  hours_text?: string;
-  price_hint?: string;
-  admission_price?: string | null;
-  reservation_required?: boolean;
 }
 
 export interface Hotel {
@@ -44,9 +40,6 @@ export interface Hotel {
   snippet?: string;
   why_recommended?: string;
   amenities?: string[];
-  phone?: string;
-  address?: string;
-  parking_details?: string | null;
 }
 
 export interface CarRental {
@@ -55,6 +48,7 @@ export interface CarRental {
   vehicle_class?: string | null;
   price_per_day?: string;
   pickup_location?: string;
+  operating_hours?: string | null;
   url: string;
   why_recommended?: string;
 }
@@ -77,6 +71,31 @@ export interface Reference {
   section: string;
 }
 
+export interface ItinerarySlot {
+  time_of_day: "morning" | "afternoon" | "evening";
+  activity: string;
+  item_name: string;
+  item_type: "restaurant" | "attraction" | "hotel" | "transport";
+  estimated_cost: string | null;
+}
+
+export interface ItineraryDay {
+  day_number: number;
+  date: string;
+  slots: ItinerarySlot[];
+  daily_total: string;
+}
+
+export interface TravelReport {
+  flight_summary: Record<string, string>[];
+  car_rental_summary: Record<string, string>[];
+  hotel_summary: Record<string, string>[];
+  attraction_summary: Record<string, string>[];
+  restaurant_summary: Record<string, string>[];
+  itinerary: ItineraryDay[];
+  total_estimated_budget: string;
+}
+
 export interface SpotOnResults {
   restaurants?: Restaurant[];
   travel_spots?: TravelSpot[];
@@ -85,6 +104,7 @@ export interface SpotOnResults {
   flights?: Flight[];
   constraints?: Record<string, unknown>;
   references?: Reference[];
+  report?: TravelReport;
 }
 
 export interface RunProgress {

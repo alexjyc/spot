@@ -15,7 +15,7 @@ class HotelAgent(BaseAgent):
     """
 
     TIMEOUT_SECONDS = 30
-    TOP_N = 20
+    TOP_N = 10
 
     async def execute(self, state: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -37,7 +37,8 @@ class HotelAgent(BaseAgent):
                     top_n=self.TOP_N,
                     run_id=state.get("runId"),
                     label="hotels",
-                    include_raw_content=True,
+                    include_domains=["booking.com", "hotels.com", "tripadvisor.com",
+                                     "trivago.com", "expedia.com", "agoda.com"],
                 ),
                 timeout_seconds=self.TIMEOUT_SECONDS,
             )

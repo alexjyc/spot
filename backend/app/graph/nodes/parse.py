@@ -44,9 +44,6 @@ async def parse_request(state: dict[str, Any], *, deps: Any) -> dict[str, Any]:
 
     ctx = QueryContext.from_constraints_with_normalization(constraints, norm)
 
-    # Debug: Print QueryContext to terminal
-    print(f"\n[DEBUG] QueryContext Validated:\n{ctx.model_dump_json(indent=2)}\n")
-
     logger.info(
         "Validated constraints: %s -> %s (%s)",
         constraints.origin,

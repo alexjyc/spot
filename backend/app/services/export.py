@@ -82,6 +82,23 @@ def generate_pdf(final_output: dict[str, Any], constraints: dict[str, Any]) -> b
                     elements.append(Paragraph(f"<b>{label}:</b> {val}", body_style))
         elements.append(Spacer(1, 12))
 
+    # References section
+    refs = final_output.get("references", [])
+    if refs:
+        elements.append(Paragraph("References", section_style))
+        for ref in refs:
+            title = ref.get("title") or ref.get("url", "—")
+            url = ref.get("url", "")
+            section = ref.get("section", "")
+            label = f" [{section}]" if section else ""
+            if url:
+                elements.append(
+                    Paragraph(f'<a href="{url}" color="#0066cc">{title}</a>{label}', body_style)
+                )
+            else:
+                elements.append(Paragraph(f"{title}{label}", body_style))
+        elements.append(Spacer(1, 12))
+
     doc.build(elements)
     return buf.getvalue()
 
@@ -92,13 +109,13 @@ def generate_xlsx(final_output: dict[str, Any], constraints: dict[str, Any]) -> 
 
     sheet_configs = [
         ("Restaurants", final_output.get("restaurants", []),
-         ["name", "cuisine", "price_range", "rating", "area", "why_recommended", "address", "phone", "hours_text", "url"]),
+         ["name", "cuisine", "price_range", "rating", "area", "operating_hours", "why_recommended", "menu_url", "reservation_url", "url"]),
         ("Attractions", final_output.get("travel_spots", []),
-         ["name", "kind", "area", "why_recommended", "estimated_duration_min", "price_hint", "reservation_required", "hours_text", "url"]),
+         ["name", "kind", "area", "operating_hours", "admission_price", "estimated_duration_min", "why_recommended", "reservation_url", "url"]),
         ("Hotels", final_output.get("hotels", []),
-         ["name", "price_per_night", "area", "amenities", "why_recommended", "address", "phone", "url"]),
+         ["name", "price_per_night", "area", "amenities", "why_recommended", "url"]),
         ("Car Rentals", final_output.get("car_rentals", []),
-         ["provider", "vehicle_class", "price_per_day", "pickup_location", "url"]),
+         ["provider", "vehicle_class", "price_per_day", "pickup_location", "operating_hours", "url"]),
         ("Flights", final_output.get("flights", []),
          ["airline", "route", "trip_type", "price_range", "url"]),
     ]
@@ -131,6 +148,21 @@ def generate_xlsx(final_output: dict[str, Any], constraints: dict[str, Any]) -> 
         # Auto-width columns (rough estimate)
         for col_idx, col_name in enumerate(columns, 1):
             ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = max(15, len(col_name) + 5)
+
+    # References sheet
+    refs = final_output.get("references", [])
+    if refs:
+        ws = wb.create_sheet(title="References")
+        ref_columns = ["title", "section", "url"]
+        headers = [col.replace("_", " ").title() for col in ref_columns]
+        ws.append(headers)
+        for cell in ws[1]:
+            cell.font = bold
+        for ref in refs:
+            ws.append([ref.get("title", ""), ref.get("section", ""), ref.get("url", "")])
+        ws.column_dimensions["A"].width = 35
+        ws.column_dimensions["B"].width = 15
+        ws.column_dimensions["C"].width = 50
 
     buf = io.BytesIO()
     wb.save(buf)

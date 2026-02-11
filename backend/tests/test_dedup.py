@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.utils.dedup import canonicalize_url, domain, normalize_name
+from app.utils.dedup import canonicalize_url, normalize_name
 
 
 class TestNormalizeName:
@@ -54,18 +54,3 @@ class TestCanonicalizeUrl:
     def test_adds_default_path(self):
         result = canonicalize_url("https://example.com")
         assert result == "https://example.com/"
-
-
-class TestDomain:
-    def test_extracts_domain(self):
-        assert domain("https://www.example.com/path") == "www.example.com"
-
-    def test_lowercases(self):
-        assert domain("https://EXAMPLE.COM/path") == "example.com"
-
-    def test_empty_url(self):
-        assert domain("") == ""
-
-    def test_no_scheme(self):
-        # urlparse without scheme puts everything in path
-        assert domain("example.com") == ""

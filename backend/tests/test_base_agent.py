@@ -27,62 +27,6 @@ def agent():
     return ConcreteAgent("test_agent", deps)
 
 
-class TestDedupByUrl:
-    def test_removes_duplicate_urls(self):
-        items = [
-            {"url": "https://example.com/a", "name": "first"},
-            {"url": "https://example.com/a", "name": "second"},
-            {"url": "https://example.com/b", "name": "third"},
-        ]
-        result = BaseAgent._dedup_by_url(items)
-        assert len(result) == 2
-        assert result[0]["name"] == "first"
-        assert result[1]["name"] == "third"
-
-    def test_keeps_first_occurrence(self):
-        items = [
-            {"url": "https://example.com/a?id=1&utm_source=one", "name": "with-tracking"},
-            {"url": "https://example.com/a?id=1&utm_source=two", "name": "diff-tracking"},
-        ]
-        result = BaseAgent._dedup_by_url(items)
-        # Both canonicalize to same URL (tracking stripped)
-        assert len(result) == 1
-        assert result[0]["name"] == "with-tracking"
-
-    def test_empty_list(self):
-        assert BaseAgent._dedup_by_url([]) == []
-
-
-class TestDedupByNameAndUrl:
-    def test_dedup_by_name(self):
-        Item = SimpleNamespace
-        items = [
-            Item(name="Test Place", url="https://a.com"),
-            Item(name="test place", url="https://b.com"),
-            Item(name="Other", url="https://c.com"),
-        ]
-        result = BaseAgent._dedup_by_name_and_url(items, top_n=10)
-        assert len(result) == 2
-
-    def test_dedup_by_url(self):
-        Item = SimpleNamespace
-        items = [
-            Item(name="Place A", url="https://example.com/page"),
-            Item(name="Place B", url="https://example.com/page"),
-        ]
-        result = BaseAgent._dedup_by_name_and_url(items, top_n=10)
-        assert len(result) == 1
-
-    def test_respects_top_n(self):
-        Item = SimpleNamespace
-        items = [
-            Item(name=f"Place {i}", url=f"https://example.com/{i}")
-            for i in range(10)
-        ]
-        result = BaseAgent._dedup_by_name_and_url(items, top_n=3)
-        assert len(result) == 3
-
-
 class TestFlattenSearchResults:
     def test_flattens_results(self):
         search_results = [
@@ -146,6 +90,39 @@ class TestFormatSearchText:
         content_line = [l for l in result.split("\n") if l.startswith("Content:")][0]
         content_value = content_line[len("Content: "):]
         assert len(content_value) == 50
+
+    def test_includes_raw_content(self):
+        items = [
+            {
+                "title": "Place",
+                "url": "https://example.com",
+                "content": "Short snippet",
+                "raw_content": "Full page content here",
+            }
+        ]
+        result = BaseAgent._format_search_text(items)
+        assert "Page Content: Full page content here" in result
+
+    def test_skips_empty_raw_content(self):
+        items = [
+            {"title": "Place", "url": "https://example.com", "content": "Snippet"}
+        ]
+        result = BaseAgent._format_search_text(items)
+        assert "Page Content" not in result
+
+    def test_respects_raw_content_limit(self):
+        items = [
+            {
+                "title": "T",
+                "url": "U",
+                "content": "C",
+                "raw_content": "x" * 5000,
+            }
+        ]
+        result = BaseAgent._format_search_text(items, raw_content_limit=100)
+        page_line = [l for l in result.split("\n") if l.startswith("Page Content:")][0]
+        page_value = page_line[len("Page Content: "):]
+        assert len(page_value) == 100
 
     def test_missing_fields(self):
         items = [{}]

@@ -15,7 +15,7 @@ class RestaurantAgent(BaseAgent):
     """
 
     TIMEOUT_SECONDS = 30
-    TOP_N = 20
+    TOP_N = 10
 
     async def execute(self, state: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -37,7 +37,9 @@ class RestaurantAgent(BaseAgent):
                     top_n=self.TOP_N,
                     run_id=state.get("runId"),
                     label="restaurants",
-                    include_raw_content=True,
+                    include_domains=["yelp.com", "tripadvisor.com", "michelin.com",
+                                     "eater.com", "infatuation.com", "timeout.com",
+                                     "thefork.com"],
                 ),
                 timeout_seconds=self.TIMEOUT_SECONDS,
             )

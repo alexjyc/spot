@@ -6,15 +6,16 @@ import {
   Car,
   Plane,
   Clock,
-  Phone,
   CreditCard,
   ChevronRight,
   Star,
   FileText,
   Table,
+  CalendarDays,
+  DollarSign,
 } from "lucide-react";
 import { getExportUrl } from "../lib/api";
-import type { SpotOnResults, Restaurant, TravelSpot, Hotel, CarRental, Flight } from "../types/api";
+import type { SpotOnResults, Restaurant, TravelSpot, Hotel, CarRental, Flight, ItineraryDay } from "../types/api";
 import { ReferenceTabs } from "./ReferenceTabs";
 
 interface ResultsViewProps {
@@ -33,6 +34,7 @@ export default function ResultsView({ results, runId }: ResultsViewProps) {
     car_rentals = [],
     flights = [],
     references = [],
+    report,
   } = results;
 
   const topRestaurants = restaurants.slice(0, TOP_N_RESTAURANTS);
@@ -108,6 +110,45 @@ export default function ResultsView({ results, runId }: ResultsViewProps) {
             <span>Export Spreadsheet</span>
           </a>
         </div>
+      )}
+
+      {/* Travel Report */}
+      {report && report.itinerary && report.itinerary.length > 0 && (
+        <section className="animate-fadeIn">
+          <SectionHeader
+            icon={<CalendarDays size={28} className="text-[#FF4F00]" />}
+            title="Your Travel Plan"
+            subtitle="A curated 3-day itinerary with daily budget."
+          />
+
+          {/* Itinerary Grid */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 24, marginTop: 24 }}>
+            {report.itinerary.map((day) => (
+              <ItineraryDayCard key={day.day_number} day={day} />
+            ))}
+          </div>
+
+          {/* Total Budget */}
+          <div style={{
+            marginTop: 32,
+            padding: "20px 24px",
+            background: "#f5f5f7",
+            borderRadius: 16,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <DollarSign size={20} color="#1d8b3a" />
+              <span style={{ fontSize: 16, fontWeight: 600, color: "#1d1d1f" }}>
+                Estimated Total Budget
+              </span>
+            </div>
+            <span style={{ fontSize: 20, fontWeight: 700, color: "#1d8b3a" }}>
+              {report.total_estimated_budget}
+            </span>
+          </div>
+        </section>
       )}
 
       {/* Transport */}
@@ -228,33 +269,11 @@ function SectionHeader({ icon, title, subtitle }: { icon: React.ReactNode, title
   );
 }
 
-function ReferenceSection({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div style={{ marginTop: 24 }}>
-      <h4 style={{ fontSize: 14, color: "#86868b", marginBottom: 12, fontWeight: 600 }}>{title}</h4>
-      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function RefRow({ name, detail, price, url }: { name: string; detail?: string; price?: string; url: string }) {
-  return (
-    <div style={refRowStyle}>
-      <span style={refNameStyle}>{name}</span>
-      {detail && <span style={refDetailStyle}>{detail}</span>}
-      {price && <span style={refPriceStyle}>{price}</span>}
-      <a href={url} target="_blank" rel="noopener noreferrer" style={refLinkStyle}>View</a>
-    </div>
-  );
-}
-
 function RestaurantCard({ restaurant }: { restaurant: Restaurant }) {
   const hasLinks = Boolean(restaurant.menu_url || restaurant.reservation_url);
   return (
     <div style={cardStyle}>
-      <div style={{ padding: 24, flex: 1 }}>
+      <div style={{ padding: 24, flex: 1, display: "flex", flexDirection: "column" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
           <h3 style={cardTitleStyle}>{restaurant.name}</h3>
           {restaurant.rating && (
@@ -272,40 +291,31 @@ function RestaurantCard({ restaurant }: { restaurant: Restaurant }) {
 
         <p style={descriptionStyle}>{restaurant.why_recommended}</p>
 
-        {(restaurant.hours_text || restaurant.phone || restaurant.address) && (
-          <div style={metaContainerStyle}>
-            {restaurant.hours_text && (
-              <div style={metaItemStyle}>
-                <Clock size={14} /> <span>{restaurant.hours_text}</span>
-              </div>
-            )}
-            {restaurant.address && (
-              <div style={metaItemStyle}>
-                <MapPin size={14} /> <span>{restaurant.address}</span>
-              </div>
-            )}
-            {restaurant.phone && (
-              <div style={metaItemStyle}>
-                <Phone size={14} /> <span>{restaurant.phone}</span>
-              </div>
-            )}
-          </div>
-        )}
+        {/* Bottom-pinned section: hours + action chips always align at card bottom */}
+        <div style={{ marginTop: "auto", paddingTop: 16 }}>
+          {restaurant.operating_hours && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: "#86868b", fontWeight: 500 }}>
+              <Clock size={14} /> <span>{restaurant.operating_hours}</span>
+            </div>
+          )}
 
-        {hasLinks && (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 14 }}>
-            {restaurant.menu_url && (
-              <a href={restaurant.menu_url} target="_blank" rel="noopener noreferrer" style={inlineLinkStyle}>
-                <FileText size={14} /> <span>Menu</span>
-              </a>
-            )}
-            {restaurant.reservation_url && (
-              <a href={restaurant.reservation_url} target="_blank" rel="noopener noreferrer" style={inlineLinkStyle}>
-                <Table size={14} /> <span>Reservations</span>
-              </a>
-            )}
-          </div>
-        )}
+          {hasLinks && (
+            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+              {restaurant.menu_url && (
+                <a href={restaurant.menu_url} target="_blank" rel="noopener noreferrer" style={actionChipStyle}>
+                  <FileText size={13} strokeWidth={2.5} />
+                  <span>View Menu</span>
+                </a>
+              )}
+              {restaurant.reservation_url && (
+                <a href={restaurant.reservation_url} target="_blank" rel="noopener noreferrer" style={actionChipPrimaryStyle}>
+                  <span>Reserve a Table</span>
+                  <ChevronRight size={14} strokeWidth={2.5} />
+                </a>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       <a href={restaurant.url} target="_blank" rel="noopener noreferrer" style={cardFooterLinkStyle}>
@@ -319,35 +329,25 @@ function RestaurantCard({ restaurant }: { restaurant: Restaurant }) {
 function AttractionCard({ attraction }: { attraction: TravelSpot }) {
   return (
     <div style={cardStyle}>
-      <div style={{ padding: 24, flex: 1 }}>
+      <div style={{ padding: 24, flex: 1, display: "flex", flexDirection: "column" }}>
         <h3 style={cardTitleStyle}>{attraction.name}</h3>
 
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
           {attraction.kind && <span style={pillStyle}>{attraction.kind}</span>}
           {attraction.area && <span style={secondaryPillStyle}>{attraction.area}</span>}
-          {attraction.reservation_required && (
-            <span style={{ ...pillStyle, background: "#fff0f0", color: "#c62828" }}>
-              Reservation Required
-            </span>
-          )}
         </div>
 
         <p style={descriptionStyle}>{attraction.why_recommended}</p>
 
         <div style={metaContainerStyle}>
-          {attraction.hours_text && (
+          {attraction.operating_hours && (
             <div style={metaItemStyle}>
-              <Clock size={14} /> <span>{attraction.hours_text}</span>
+              <Clock size={14} /> <span>{attraction.operating_hours}</span>
             </div>
           )}
           {attraction.estimated_duration_min && (
             <div style={metaItemStyle}>
               <Clock size={14} /> <span>~{attraction.estimated_duration_min} mins</span>
-            </div>
-          )}
-          {attraction.price_hint && (
-            <div style={metaItemStyle}>
-              <CreditCard size={14} /> <span>{attraction.price_hint}</span>
             </div>
           )}
           {attraction.admission_price && (
@@ -356,6 +356,15 @@ function AttractionCard({ attraction }: { attraction: TravelSpot }) {
             </div>
           )}
         </div>
+
+        {attraction.reservation_url && (
+          <div style={{ marginTop: "auto", paddingTop: 16 }}>
+            <a href={attraction.reservation_url} target="_blank" rel="noopener noreferrer" style={actionChipPrimaryStyle}>
+              <span>Get Tickets</span>
+              <ChevronRight size={14} strokeWidth={2.5} />
+            </a>
+          </div>
+        )}
       </div>
 
       <a href={attraction.url} target="_blank" rel="noopener noreferrer" style={cardFooterLinkStyle}>
@@ -386,28 +395,7 @@ function HotelCard({ hotel }: { hotel: Hotel }) {
 
         <p style={descriptionStyle}>{hotel.why_recommended}</p>
 
-        {(hotel.phone || hotel.address) && (
-          <div style={metaContainerStyle}>
-            {hotel.address && (
-              <div style={metaItemStyle}>
-                <MapPin size={14} /> <span>{hotel.address}</span>
-              </div>
-            )}
-            {hotel.phone && (
-              <div style={metaItemStyle}>
-                <Phone size={14} /> <span>{hotel.phone}</span>
-              </div>
-            )}
-          </div>
-        )}
 
-        {hotel.parking_details && (
-          <div style={metaContainerStyle}>
-            <div style={metaItemStyle}>
-              <Car size={14} /> <span>{hotel.parking_details}</span>
-            </div>
-          </div>
-        )}
       </div>
 
       <a href={hotel.url} target="_blank" rel="noopener noreferrer" style={cardFooterLinkStyle}>
@@ -439,6 +427,13 @@ function CarRentalCard({ car }: { car: CarRental }) {
         </div>
       )}
 
+      {car.operating_hours && (
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, fontSize: 13, color: "#86868b" }}>
+          <Clock size={12} />
+          {car.operating_hours}
+        </div>
+      )}
+
       <a href={car.url} target="_blank" rel="noopener noreferrer" style={compactLinkStyle}>
         Book Car
       </a>
@@ -464,6 +459,73 @@ function FlightCard({ flight }: { flight: Flight }) {
       <a href={flight.url} target="_blank" rel="noopener noreferrer" style={compactLinkStyle}>
         Check Flights
       </a>
+    </div>
+  );
+}
+
+function ItineraryDayCard({ day }: { day: ItineraryDay }) {
+  const timeIcons: Record<string, React.ReactNode> = {
+    morning: <span style={{ fontSize: 16 }}>🌅</span>,
+    afternoon: <span style={{ fontSize: 16 }}>☀️</span>,
+    evening: <span style={{ fontSize: 16 }}>🌙</span>,
+  };
+
+  return (
+    <div style={cardStyle}>
+      <div style={{ padding: 24, flex: 1 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+          <h3 style={{ ...cardTitleStyle, fontSize: 18 }}>Day {day.day_number}</h3>
+          <span style={tertiaryPillStyle}>{day.date}</span>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {day.slots.map((slot, idx) => (
+            <div key={idx} style={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 12,
+              paddingBottom: idx < day.slots.length - 1 ? 16 : 0,
+              borderBottom: idx < day.slots.length - 1 ? "1px solid #f5f5f7" : "none",
+            }}>
+              <div style={{ paddingTop: 2, flexShrink: 0 }}>
+                {timeIcons[slot.time_of_day] || timeIcons.morning}
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: "#1d1d1f" }}>
+                    {slot.item_name}
+                  </span>
+                  {slot.estimated_cost && (
+                    <span style={{ fontSize: 12, fontWeight: 500, color: "#1d8b3a", whiteSpace: "nowrap" }}>
+                      {slot.estimated_cost}
+                    </span>
+                  )}
+                </div>
+                <p style={{ fontSize: 13, color: "#86868b", margin: "4px 0 0 0", lineHeight: 1.4 }}>
+                  {slot.activity}
+                </p>
+                <span style={{ ...tertiaryPillStyle, marginTop: 6, display: "inline-block" }}>
+                  {slot.item_type}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{
+        padding: "12px 24px",
+        background: "#fafafa",
+        borderTop: "1px solid #f5f5f7",
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        fontSize: 14,
+        fontWeight: 600,
+      }}>
+        <span style={{ color: "#86868b" }}>Day Total</span>
+        <span style={{ color: "#1d8b3a" }}>{day.daily_total}</span>
+      </div>
     </div>
   );
 }
@@ -542,18 +604,38 @@ const tertiaryPillStyle: React.CSSProperties = {
   color: "#6e6e73",
 };
 
-const inlineLinkStyle: React.CSSProperties = {
+const actionChipStyle: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   gap: 6,
-  padding: "8px 12px",
-  borderRadius: 12,
-  border: "1px solid #e5e5ea",
-  background: "#ffffff",
+  padding: "7px 14px",
+  borderRadius: 100,
+  background: "#f5f5f7",
+  border: "none",
   color: "#1d1d1f",
   fontSize: 13,
   fontWeight: 600,
   textDecoration: "none",
+  letterSpacing: "-0.01em",
+  transition: "background 0.15s ease",
+  cursor: "pointer",
+};
+
+const actionChipPrimaryStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 4,
+  padding: "7px 14px",
+  borderRadius: 100,
+  background: "#FF4F00",
+  border: "none",
+  color: "#ffffff",
+  fontSize: 13,
+  fontWeight: 600,
+  textDecoration: "none",
+  letterSpacing: "-0.01em",
+  transition: "background 0.15s ease",
+  cursor: "pointer",
 };
 
 const ratingBadgeStyle: React.CSSProperties = {
@@ -655,46 +737,3 @@ const exportButtonStyle: React.CSSProperties = {
   cursor: "pointer",
 };
 
-// Reference rows
-const refRowStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 16,
-  padding: "10px 16px",
-  borderRadius: 10,
-  background: "#fafafa",
-  fontSize: 14,
-};
-
-const refNameStyle: React.CSSProperties = {
-  fontWeight: 600,
-  color: "#1d1d1f",
-  minWidth: 0,
-  whiteSpace: "nowrap",
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  maxWidth: 220,
-};
-
-const refDetailStyle: React.CSSProperties = {
-  color: "#86868b",
-  flex: 1,
-  minWidth: 0,
-  whiteSpace: "nowrap",
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-};
-
-const refPriceStyle: React.CSSProperties = {
-  fontWeight: 600,
-  color: "#1d8b3a",
-  whiteSpace: "nowrap",
-};
-
-const refLinkStyle: React.CSSProperties = {
-  fontWeight: 600,
-  color: "#FF4F00",
-  textDecoration: "none",
-  whiteSpace: "nowrap",
-  marginLeft: "auto",
-};

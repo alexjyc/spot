@@ -11,11 +11,12 @@ from langgraph.graph import END, StateGraph
 from app.agents.attractions import AttractionsAgent
 from app.agents.enrichment import EnrichmentAgent
 from app.agents.hotel import HotelAgent
+from app.agents.report_writer import ReportWriterAgent
 from app.agents.restaurant import RestaurantAgent
 from app.agents.transport import TransportAgent
-from app.agents.writer import WriterAgent
-from app.graph.nodes.aggregate_results import aggregate_results
+from app.agents.writer import NormalizeAgent
 from app.graph.nodes.parse import parse_request
+from app.graph.nodes.quality_split import quality_split
 from app.graph.state import SpotOnState
 
 logger = logging.getLogger(__name__)
@@ -31,28 +32,31 @@ def build_graph(deps: Any):
              │               │               │               │
              ▼               ▼               ▼               ▼
       RestaurantAgent  AttractionsAgent  HotelAgent   TransportAgent
-        (search only)   (search only)   (search only)  (search only)
              │               │               │               │
              └───────────────┴───────────────┴───────────────┘
                                   ▼
-                            WriterAgent
+                           NormalizeAgent
                       (5 parallel LLM calls)
                                   ▼
-                          EnrichmentAgent
-                                  ▼
-                          AggregateResults
-                                  ▼
-                                END
-
-    All 4 domain agents execute in parallel (search only). WriterAgent waits
-    for all 4 to complete, then runs 5 parallel LLM normalizations.
-    EnrichmentAgent processes only the top picks (~18 items).
-
-    Args:
-        deps: Dependency container with services (tavily, llm, mongo, etc.)
-
-    Returns:
-        Compiled LangGraph
+                         normalize_router
+                        ┌────────┴────────┐
+                   enrichment ON     enrichment OFF
+                        │                 │
+                        ▼                 │
+                   EnrichAgent            │
+                        │                 │
+                   enrichment_router      │
+                   ┌────┴────┐            │
+                   loop     done          │
+                        │                 │
+                        ▼                 │
+                   QualitySplit  ◄─────────┘
+                        │
+                        ▼
+                   ReportWriter
+                        │
+                        ▼
+                       END
     """
     graph = StateGraph(SpotOnState)
 
@@ -61,8 +65,9 @@ def build_graph(deps: Any):
     attractions_agent = AttractionsAgent("attractions_agent", deps)
     hotel_agent = HotelAgent("hotel_agent", deps)
     transport_agent = TransportAgent("transport_agent", deps)
-    writer_agent = WriterAgent("writer_agent", deps)
+    normalize_agent = NormalizeAgent("normalize_agent", deps)
     enrichment_agent = EnrichmentAgent("enrichment_agent", deps)
+    report_writer = ReportWriterAgent("report_writer", deps)
 
     async def _emit_node_event(
         run_id: str,
@@ -228,32 +233,32 @@ def build_graph(deps: Any):
         _wrap("TransportAgent", transport_agent.execute, pass_deps_kwarg=False),
     )
 
-    # Writer agent (normalizes raw search results into top picks)
+    # NormalizeAgent (normalizes raw search results into top picks)
     graph.add_node(
-        "WriterAgent",
-        _wrap("WriterAgent", writer_agent.execute, pass_deps_kwarg=False),
+        "NormalizeAgent",
+        _wrap("NormalizeAgent", normalize_agent.execute, pass_deps_kwarg=False),
     )
 
-    # Enrichment agent (sequential after writer)
+    # EnrichAgent (2-phase enrichment with LLM queries + domain filtering)
     graph.add_node(
-        "EnrichmentAgent",
-        _wrap("EnrichmentAgent", enrichment_agent.execute, pass_deps_kwarg=False),
+        "EnrichAgent",
+        _wrap("EnrichAgent", enrichment_agent.execute, pass_deps_kwarg=False),
     )
 
-    # Aggregation
+    # QualitySplit (pure logic — main vs references)
     graph.add_node(
-        "AggregateResults",
-        _wrap("AggregateResults", aggregate_results, pass_deps_kwarg=True),
+        "QualitySplit",
+        _wrap("QualitySplit", quality_split, pass_deps_kwarg=True),
+    )
+
+    # ReportWriter (synthesize itinerary + budget)
+    graph.add_node(
+        "ReportWriter",
+        _wrap("ReportWriter", report_writer.execute, pass_deps_kwarg=False),
     )
 
     # =========================================================================
-    # GRAPH STRUCTURE - MULTI-AGENT PARALLEL EXECUTION
-    # =========================================================================
-    #
-    # Parse -> [4 domain agents in parallel] -> Writer -> Enrichment -> Aggregate -> END
-    #
-    # LangGraph automatically handles the join pattern: WriterAgent waits for
-    # all 4 domain agents to complete before executing.
+    # GRAPH STRUCTURE
     # =========================================================================
 
     graph.set_entry_point("ParseRequest")
@@ -264,15 +269,38 @@ def build_graph(deps: Any):
     graph.add_edge("ParseRequest", "HotelAgent")
     graph.add_edge("ParseRequest", "TransportAgent")
 
-    # Join pattern: WriterAgent waits for all 4 domain agents
-    graph.add_edge("RestaurantAgent", "WriterAgent")
-    graph.add_edge("AttractionsAgent", "WriterAgent")
-    graph.add_edge("HotelAgent", "WriterAgent")
-    graph.add_edge("TransportAgent", "WriterAgent")
+    # Join pattern: NormalizeAgent waits for all 4 domain agents
+    graph.add_edge("RestaurantAgent", "NormalizeAgent")
+    graph.add_edge("AttractionsAgent", "NormalizeAgent")
+    graph.add_edge("HotelAgent", "NormalizeAgent")
+    graph.add_edge("TransportAgent", "NormalizeAgent")
 
-    # Sequential: Writer -> Enrichment -> Aggregate -> END
-    graph.add_edge("WriterAgent", "EnrichmentAgent")
-    graph.add_edge("EnrichmentAgent", "AggregateResults")
-    graph.add_edge("AggregateResults", END)
+    # Conditional edge 1: enrichment toggle
+    def normalize_router(state: dict[str, Any]) -> str:
+        if state.get("skip_enrichment"):
+            return "QualitySplit"
+        return "EnrichAgent"
+
+    graph.add_conditional_edges("NormalizeAgent", normalize_router, {
+        "EnrichAgent": "EnrichAgent",
+        "QualitySplit": "QualitySplit",
+    })
+
+    # Conditional edge 2: enrichment quality loop
+    def enrichment_router(state: dict[str, Any]) -> str:
+        ratio = state.get("enrichment_gap_ratio", 0.0)
+        loops = state.get("enrichment_loop_count", 0)
+        if ratio > 0.5 and loops < 2:
+            return "EnrichAgent"
+        return "QualitySplit"
+
+    graph.add_conditional_edges("EnrichAgent", enrichment_router, {
+        "EnrichAgent": "EnrichAgent",
+        "QualitySplit": "QualitySplit",
+    })
+
+    # QualitySplit → ReportWriter → END
+    graph.add_edge("QualitySplit", "ReportWriter")
+    graph.add_edge("ReportWriter", END)
 
     return graph.compile()

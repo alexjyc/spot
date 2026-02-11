@@ -3,14 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-import logging
-import time
 
 from langchain_core.messages import BaseMessage
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
-
-logger = logging.getLogger(__name__)
 
 
 class LLMService:
@@ -31,7 +27,6 @@ class LLMService:
     ) -> BaseModel:
         """Get structured output from LLM."""
         chain = self.chat.with_structured_output(output_schema)
-        t0 = time.monotonic()
         try:
             return await asyncio.wait_for(
                 chain.ainvoke(messages), timeout=self.timeout_seconds
@@ -40,7 +35,3 @@ class LLMService:
             raise TimeoutError(
                 f"OpenAI request timed out after {self.timeout_seconds:.0f}s"
             ) from e
-        finally:
-            logger.debug(
-                "LLM structured output finished in %.0fms", (time.monotonic() - t0) * 1000
-            )

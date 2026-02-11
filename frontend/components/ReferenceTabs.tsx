@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { BookOpen, ExternalLink, Globe } from "lucide-react";
 
 interface ReferenceItem {
@@ -24,11 +24,14 @@ export function ReferenceTabs({ categories }: ReferenceTabsProps) {
     const activeCategories = categories.filter((c) => c.items && c.items.length > 0);
     const [activeTab, setActiveTab] = useState<string>(activeCategories[0]?.id || "");
 
-    if (activeCategories.length === 0) return null;
+    // Fix anti-pattern: Move setState to useEffect instead of during render
+    useEffect(() => {
+        if (!activeCategories.find((c) => c.id === activeTab) && activeCategories.length > 0) {
+            setActiveTab(activeCategories[0].id);
+        }
+    }, [activeCategories, activeTab]);
 
-    if (!activeCategories.find((c) => c.id === activeTab) && activeCategories.length > 0) {
-        setActiveTab(activeCategories[0].id);
-    }
+    if (activeCategories.length === 0) return null;
 
     const currentCategory = activeCategories.find((c) => c.id === activeTab);
 
