@@ -1,7 +1,3 @@
-"""Tests for dedup utility functions."""
-
-from __future__ import annotations
-
 from app.utils.dedup import canonicalize_url, normalize_name
 
 

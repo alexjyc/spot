@@ -1,7 +1,3 @@
-"""Shared fixtures for the backend test suite."""
-
-from __future__ import annotations
-
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 

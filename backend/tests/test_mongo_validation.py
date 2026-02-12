@@ -1,7 +1,3 @@
-"""Tests for MongoService input validation."""
-
-from __future__ import annotations
-
 import pytest
 
 from app.db.mongo import MongoService

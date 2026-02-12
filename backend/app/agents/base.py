@@ -1,22 +1,13 @@
-"""Base agent class for all Spot On agents."""
-
-from __future__ import annotations
-
 import asyncio
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from app.utils.dedup import canonicalize_url, normalize_name
 
 
 class BaseAgent(ABC):
-    """Abstract base class for all agents in the multi-agent system.
-
-    Provides common functionality like logging, timeout handling,
-    standardized error responses, and shared search helpers.
-    """
-
     def __init__(self, agent_id: str, deps: Any) -> None:
         self.agent_id = agent_id
         self.deps = deps
@@ -24,7 +15,6 @@ class BaseAgent(ABC):
 
     @abstractmethod
     async def execute(self, state: dict[str, Any]) -> dict[str, Any]:
-        """Execute agent logic and return partial state update."""
         pass
 
     async def with_timeout(
@@ -47,7 +37,30 @@ class BaseAgent(ABC):
             "warnings": warning_msgs,
         }
 
-    # -- Shared helpers used by domain agents --
+    async def _normalize_chunked(
+        self,
+        items: list[dict[str, Any]],
+        normalize_fn: Callable[[list[dict[str, Any]]], Awaitable[list]],
+        chunk_size: int,
+    ) -> list:
+        if len(items) <= chunk_size:
+            return await normalize_fn(items)
+
+        chunks = [items[i : i + chunk_size] for i in range(0, len(items), chunk_size)]
+        results = await asyncio.gather(
+            *[normalize_fn(chunk) for chunk in chunks],
+            return_exceptions=True,
+        )
+
+        merged: list = []
+        for batch in results:
+            if isinstance(batch, Exception):
+                self.logger.warning("Chunk normalization failed: %s", batch)
+                continue
+            merged.extend(batch)
+        return merged
+
+
     # MIN_RESULTS_THRESHOLD = 15
 
     async def _search_with_fallback(
@@ -61,7 +74,6 @@ class BaseAgent(ABC):
         max_results_per_query: int = 8,
         include_domains: list[str] | None = None,
     ) -> list[dict[str, Any]]:
-        """Search with primary queries, fall back if dedup drops below threshold."""
         agent_label = f"{self.agent_id}:{label}" if label else self.agent_id
         primary_results = await self._parallel_search(
             primary_queries,
@@ -147,10 +159,11 @@ class BaseAgent(ABC):
         raw_content_limit: int = 3000,
     ) -> str:
         """Format search result items into text for LLM input."""
+        total = len(items)
         parts: list[str] = []
-        for item in items:
+        for idx, item in enumerate(items, 1):
             block = (
-                f"Title: {item.get('title', 'N/A')}\n"
+                f"[{idx}/{total}] Title: {item.get('title', 'N/A')}\n"
                 f"URL: {item.get('url', 'N/A')}\n"
                 f"Content: {item.get('content', 'N/A')[:content_limit]}"
             )
@@ -158,4 +171,5 @@ class BaseAgent(ABC):
             if rc:
                 block += f"\nPage Content: {rc}"
             parts.append(block)
-        return "\n\n".join(parts)
+        header = f"Total items: {total} — you MUST output exactly {total} structured items.\n\n"
+        return header + "\n\n".join(parts)

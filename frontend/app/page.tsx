@@ -4,16 +4,20 @@ import { format, isBefore, startOfDay } from "date-fns";
 import { Search, MapPin, Target } from "lucide-react";
 import { motion } from "framer-motion";
 import ResultsView from "../components/ResultsView";
-import { createRun, getRun, cancelRun } from "../lib/api";
+import { createRun, getRun, cancelRun, recommendDestination } from "../lib/api";
 import { subscribeToRunEvents } from "../lib/sse";
 import { DatePicker } from "../components/ui/DatePicker";
-import type { SpotOnResults, NodeEventPayload, ArtifactEventPayload } from "../types/api";
+import type { SpotOnResults, NodeEventPayload, ArtifactEventPayload, RecommendedDestination } from "../types/api";
 
 export default function Page() {
   const [origin, setOrigin] = useState("");
-  const [destination, setDestination] = useState("");
   const [departingDate, setDepartingDate] = useState<Date | undefined>(undefined);
   const [returningDate, setReturningDate] = useState<Date | undefined>(undefined);
+  const [vibe, setVibe] = useState("");
+  const [budget, setBudget] = useState("");
+  const [climate, setClimate] = useState("");
+  const [recommendation, setRecommendation] = useState<RecommendedDestination | null>(null);
+  const [recommending, setRecommending] = useState(false);
   const [results, setResults] = useState<SpotOnResults | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,7 +57,7 @@ export default function Page() {
   useEffect(() => {
     const handleBeforeUnload = () => {
       if (runIdRef.current) {
-        navigator.sendBeacon(`/api/runs/${runIdRef.current}/cancel`);
+        navigator.sendBeacon(`/runs/${runIdRef.current}/cancel`);
       }
     };
     window.addEventListener("beforeunload", handleBeforeUnload);
@@ -63,7 +67,6 @@ export default function Page() {
       window.removeEventListener("pagehide", handleBeforeUnload);
       cleanup(false);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -72,7 +75,7 @@ export default function Page() {
     const check = async () => {
       const t0 = performance.now();
       try {
-        const res = await fetch("/api/health", { cache: "no-store" });
+        const res = await fetch("/health", { cache: "no-store" });
         const json = await res.json().catch(() => null);
         const ok = res.ok && !!json && (json as any).ok === true;
         if (cancelled) return;
@@ -99,38 +102,37 @@ export default function Page() {
     };
   }, []);
 
-  const [fieldErrors, setFieldErrors] = useState<{ origin?: boolean; destination?: boolean; departing?: boolean }>({});
+  const [fieldErrors, setFieldErrors] = useState<{ origin?: boolean; departing?: boolean; vibe?: boolean; budget?: boolean; climate?: boolean }>({});
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     cleanup(true);
 
-    // Reset errors
     setError(null);
     setFieldErrors({});
 
-    // Validate fields
     const newErrors = {
       origin: !origin.trim(),
-      destination: !destination.trim(),
       departing: !departingDate,
+      vibe: !vibe,
+      budget: !budget,
+      climate: !climate,
     };
 
-    // Date constraint validation
     if (departingDate && returningDate && isBefore(returningDate, departingDate)) {
-      // This should physically not be possible due to minDate, but as a fallback:
-      setFieldErrors(prev => ({ ...prev, departing: true })); // Or a specific error
+      setFieldErrors(prev => ({ ...prev, departing: true }));
       setError("Return date must be after departing date");
       return;
     }
 
     if (Object.values(newErrors).some(Boolean)) {
       setFieldErrors(newErrors);
-      // Optional: Shake logic could go here if using Framer Motion on the container
       return;
     }
 
     setLoading(true);
+    setRecommending(true);
+    setRecommendation(null);
     setResults(null);
     setRunId(null);
     setNodes({});
@@ -139,10 +141,30 @@ export default function Page() {
     const deptStr = format(departingDate!, "yyyy-MM-dd");
     const retStr = returningDate ? format(returningDate, "yyyy-MM-dd") : "";
 
-    // Structured constraints to bypass LLM
+    let recommended: RecommendedDestination;
+    try {
+      setNodes({ RecommendDestination: { node: "RecommendDestination", status: "start", message: "Finding your destination..." } });
+      recommended = await recommendDestination({
+        origin,
+        departing_date: deptStr,
+        returning_date: retStr || undefined,
+        vibe,
+        budget,
+        climate,
+      });
+      setRecommendation(recommended);
+      setRecommending(false);
+      setNodes(prev => ({ ...prev, RecommendDestination: { node: "RecommendDestination", status: "end", message: "Destination found" } }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to recommend destination");
+      setLoading(false);
+      setRecommending(false);
+      return;
+    }
+
     const constraints = {
       origin,
-      destination,
+      destination: recommended.destination,
       departing_date: deptStr,
       returning_date: retStr || null,
     };
@@ -181,7 +203,6 @@ export default function Page() {
               cleanup();
             }
           } catch {
-            // ignore
           }
         }, 2000);
       };
@@ -220,13 +241,11 @@ export default function Page() {
           }
         },
         onError: () => {
-          // Dev proxies sometimes break SSE; fall back to polling.
           cleanup();
           startPollingFallback();
         },
       });
 
-      // Timeout after 3 minutes (backend runs can take 120-180s)
       timeoutRef.current = window.setTimeout(() => {
         setError("Request timed out");
         setLoading(false);
@@ -240,16 +259,16 @@ export default function Page() {
   };
 
   const orderedNodes = [
+    "RecommendDestination",
     "Queue",
     "ParseRequest",
     "RestaurantAgent",
     "AttractionsAgent",
     "HotelAgent",
     "TransportAgent",
-    "NormalizeAgent",
     ...(enrichmentEnabled ? ["EnrichAgent"] : []),
     "QualitySplit",
-    "ReportWriter",
+    "BudgetAgent",
   ];
 
   return (
@@ -260,7 +279,6 @@ export default function Page() {
         paddingBottom: "80px",
       }}
     >
-      {/* Hero Section */}
       <div
         style={{
           background: "linear-gradient(180deg, #f7f7f7 0%, #ffffff 100%)",
@@ -304,7 +322,6 @@ export default function Page() {
         </div>
       </div>
 
-      {/* Floating Search Card */}
       <div style={{ maxWidth: 1000, margin: "-40px auto 0", padding: "0 20px", position: "relative", zIndex: 10 }}>
         <form
           onSubmit={handleSubmit}
@@ -327,7 +344,6 @@ export default function Page() {
               marginBottom: 32,
             }}
           >
-            {/* Origin */}
             <div style={fieldContainerStyle}>
               <label style={labelStyle}>Where from?</label>
               <TextInput
@@ -348,35 +364,12 @@ export default function Page() {
               />
             </div>
 
-            {/* Destination */}
-            <div style={fieldContainerStyle}>
-              <label style={labelStyle}>Where to?</label>
-              <TextInput
-                placeholder="City or Airport"
-                value={destination}
-                onChange={(val) => {
-                  setDestination(val);
-                  if (fieldErrors.destination)
-                    setFieldErrors((prev) => ({ ...prev, destination: false }));
-                }}
-                hasError={fieldErrors.destination}
-                icon={
-                  <MapPin
-                    size={18}
-                    color={fieldErrors.destination ? "#ff3b30" : "#86868b"}
-                  />
-                }
-              />
-            </div>
-
-            {/* Departing */}
             <div style={fieldContainerStyle}>
               <label style={labelStyle}>Departing</label>
               <DatePicker
                 selected={departingDate}
                 onSelect={(date) => {
                   setDepartingDate(date);
-                  // If return date is before new departing date, clear it
                   if (date && returningDate && isBefore(returningDate, date)) {
                     setReturningDate(undefined);
                   }
@@ -389,7 +382,6 @@ export default function Page() {
               />
             </div>
 
-            {/* Return */}
             <div style={fieldContainerStyle}>
               <label style={labelStyle}>
                 Return <span style={{ fontWeight: 400, color: "#86868b", textTransform: "none" }}>(optional)</span>
@@ -403,6 +395,60 @@ export default function Page() {
                 placeholder="Add date"
                 minDate={departingDate || startOfDay(new Date())}
               />
+            </div>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 20, marginBottom: 32 }}>
+            <div>
+              <label style={labelStyle}>Trip Vibe</label>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 10 }}>
+                {["Adventure", "Culture & History", "Beach & Relaxation", "Food & Nightlife"].map((option) => (
+                  <PillButton
+                    key={option}
+                    label={option}
+                    selected={vibe === option}
+                    hasError={fieldErrors.vibe && !vibe}
+                    onClick={() => {
+                      setVibe(option);
+                      if (fieldErrors.vibe) setFieldErrors(prev => ({ ...prev, vibe: false }));
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+            <div>
+              <label style={labelStyle}>Budget</label>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 10 }}>
+                {["Budget-friendly", "Mid-range", "Luxury"].map((option) => (
+                  <PillButton
+                    key={option}
+                    label={option}
+                    selected={budget === option}
+                    hasError={fieldErrors.budget && !budget}
+                    onClick={() => {
+                      setBudget(option);
+                      if (fieldErrors.budget) setFieldErrors(prev => ({ ...prev, budget: false }));
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+            <div>
+              <label style={labelStyle}>Climate</label>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 10 }}>
+                {["Warm", "Moderate", "Cold"].map((option) => (
+                  <PillButton
+                    key={option}
+                    label={option}
+                    selected={climate === option}
+                    hasError={fieldErrors.climate && !climate}
+                    onClick={() => {
+                      setClimate(option);
+                      if (fieldErrors.climate) setFieldErrors(prev => ({ ...prev, climate: false }));
+                    }}
+                  />
+                ))}
+              </div>
             </div>
           </div>
 
@@ -452,19 +498,18 @@ export default function Page() {
                 }}
               >
                 Deep Research{" "}
-                {/* <span style={{ fontSize: "12px", fontWeight: 400 }}>(prices, hours, addresses)</span> */}
               </span>
             </label>
             <button type="submit" disabled={loading} style={buttonStyle(loading)}>
               {loading ? (
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <Spinner />
-                  <span>Curating Trip</span>
+                  <span>{recommending ? "Finding Destination..." : "Curating Trip"}</span>
                 </div>
               ) : (
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <Search size={20} strokeWidth={2.5} />
-                  <span>Search</span>
+                  <span>Discover</span>
                 </div>
               )}
             </button>
@@ -472,8 +517,35 @@ export default function Page() {
         </form>
       </div>
 
-      {/* Progress & Results Area */}
       <div style={{ maxWidth: 1000, margin: "60px auto 0", padding: "0 20px" }}>
+        {recommendation && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            style={{
+              padding: "24px 28px",
+              background: "linear-gradient(135deg, #FFF8F0 0%, #FFFFFF 100%)",
+              border: "1px solid #FFD6B0",
+              borderRadius: "20px",
+              marginBottom: 32,
+              boxShadow: "0 4px 12px rgba(255,79,0,0.06)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+              <MapPin size={18} color="#FF4F00" />
+              <span style={{ fontSize: "13px", fontWeight: 600, color: "#FF4F00", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                Your Destination
+              </span>
+            </div>
+            <div style={{ fontSize: "22px", fontWeight: 700, color: "#1d1d1f", marginBottom: 6 }}>
+              {recommendation.destination}
+            </div>
+            <div style={{ fontSize: "15px", color: "#6e6e73", lineHeight: 1.5 }}>
+              {recommendation.reasoning}
+            </div>
+          </motion.div>
+        )}
+
         {loading && (
           <div style={{ animation: "fadeIn 0.5s ease-out" }}>
             <div style={{
@@ -600,7 +672,6 @@ export default function Page() {
 
         {results && <ResultsView results={results} runId={runId} />}
       </div>
-      {/* Fixed Status Footer */}
       <div
         style={{
           position: "fixed",
@@ -654,7 +725,6 @@ function HealthPill({
   const isOk = health.status === "ok";
   const isDown = health.status === "down";
 
-  // Minimalist text: just "Systems Normal" or "Offline" or "Connecting..."
   const label = isOk ? "Systems Normal" : isDown ? "Offline" : "Connecting...";
   const color = isOk ? "#34c759" : isDown ? "#ff3b30" : "#86868b";
 
@@ -704,7 +774,7 @@ function HealthPill({
         style={{
           fontSize: "12px",
           fontWeight: 500,
-          color: "#48484a", // slightly softer than pure black
+          color: "#48484a",
           letterSpacing: "-0.01em",
         }}
       >
@@ -718,7 +788,7 @@ function HealthPill({
             color: "#aeaeb2",
             fontWeight: 400,
             marginLeft: 2,
-            fontFeatureSettings: "'tnum' on", // tabular nums
+            fontFeatureSettings: "'tnum' on",
           }}
         >
           {health.latencyMs}ms
@@ -792,6 +862,44 @@ const labelStyle: React.CSSProperties = {
   marginLeft: "4px",
 };
 
+function PillButton({
+  label,
+  selected,
+  hasError,
+  onClick,
+}: {
+  label: string;
+  selected: boolean;
+  hasError?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        padding: "10px 20px",
+        fontSize: "14px",
+        fontWeight: 600,
+        fontFamily: "inherit",
+        borderRadius: "100px",
+        border: selected
+          ? "2px solid #FF4F00"
+          : hasError
+            ? "2px solid #ff3b30"
+            : "1.5px solid #e5e5ea",
+        background: selected ? "rgba(255, 79, 0, 0.08)" : "#ffffff",
+        color: selected ? "#FF4F00" : "#1d1d1f",
+        cursor: "pointer",
+        transition: "all 0.2s ease",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
 const buttonStyle = (disabled: boolean): React.CSSProperties => ({
   marginLeft: "auto",
   padding: "0 40px",
@@ -801,7 +909,7 @@ const buttonStyle = (disabled: boolean): React.CSSProperties => ({
   color: "#ffffff",
   background: disabled
     ? "#86868b"
-    : "linear-gradient(135deg, #FF4F00 0%, #FF2E00 100%)", // Orange Gradient
+    : "linear-gradient(135deg, #FF4F00 0%, #FF2E00 100%)",
   border: "none",
   borderRadius: "100px",
   cursor: disabled ? "not-allowed" : "pointer",

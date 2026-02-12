@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import io
 from typing import Any
 
@@ -43,8 +41,7 @@ def generate_pdf(final_output: dict[str, Any], constraints: dict[str, Any]) -> b
     )
 
     elements: list = []
-
-    # Header
+  
     origin = constraints.get("origin", "")
     destination = constraints.get("destination", "")
     departing = constraints.get("departing_date", "")
@@ -57,7 +54,6 @@ def generate_pdf(final_output: dict[str, Any], constraints: dict[str, Any]) -> b
     elements.append(Paragraph("Spot On", title_style))
     elements.append(Paragraph(f"{trip_label} | {date_label}" if date_label else trip_label, subtitle_style))
 
-    # Sections
     section_configs = [
         ("Flights", final_output.get("flights", []), ["airline", "route", "trip_type", "price_range", "url"]),
         ("Car Rentals", final_output.get("car_rentals", []), ["provider", "vehicle_class", "price_per_day", "pickup_location", "url"]),
@@ -82,7 +78,6 @@ def generate_pdf(final_output: dict[str, Any], constraints: dict[str, Any]) -> b
                     elements.append(Paragraph(f"<b>{label}:</b> {val}", body_style))
         elements.append(Spacer(1, 12))
 
-    # References section
     refs = final_output.get("references", [])
     if refs:
         elements.append(Paragraph("References", section_style))
@@ -129,13 +124,12 @@ def generate_xlsx(final_output: dict[str, Any], constraints: dict[str, Any]) -> 
         else:
             ws = wb.create_sheet(title=sheet_name)
 
-        # Header row
         headers = [col.replace("_", " ").title() for col in columns]
         ws.append(headers)
+
         for cell in ws[1]:
             cell.font = bold
 
-        # Data rows
         for item in items:
             row = []
             for col in columns:
@@ -145,11 +139,9 @@ def generate_xlsx(final_output: dict[str, Any], constraints: dict[str, Any]) -> 
                 row.append(val if val is not None else "")
             ws.append(row)
 
-        # Auto-width columns (rough estimate)
         for col_idx, col_name in enumerate(columns, 1):
             ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = max(15, len(col_name) + 5)
 
-    # References sheet
     refs = final_output.get("references", [])
     if refs:
         ws = wb.create_sheet(title="References")

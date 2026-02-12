@@ -23,7 +23,6 @@ export function DatePicker({
     const [isOpen, setIsOpen] = React.useState(false);
     const containerRef = React.useRef<HTMLDivElement>(null);
 
-    // Close on click outside
     React.useEffect(() => {
         function handleClickOutside(event: MouseEvent) {
             if (

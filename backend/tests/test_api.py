@@ -1,7 +1,3 @@
-"""Tests for API endpoint error handling and data logging."""
-
-from __future__ import annotations
-
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
@@ -38,12 +34,12 @@ def app_with_mongo():
 class TestCreateRun:
     def test_422_no_prompt_or_constraints(self, app_with_mongo):
         client, app, mongo = app_with_mongo
-        resp = client.post("/api/runs", json={})
+        resp = client.post("/runs", json={})
         assert resp.status_code == 422
 
     def test_500_no_mongo(self, app_no_mongo):
         client, app = app_no_mongo
-        resp = client.post("/api/runs", json={
+        resp = client.post("/runs", json={
             "constraints": {
                 "origin": "Tokyo",
                 "destination": "Seoul",
@@ -55,7 +51,7 @@ class TestCreateRun:
 
     def test_creates_run_calls_mongo(self, app_with_mongo):
         client, app, mongo = app_with_mongo
-        resp = client.post("/api/runs", json={
+        resp = client.post("/runs", json={
             "constraints": {
                 "origin": "Tokyo",
                 "destination": "Seoul",
@@ -73,12 +69,12 @@ class TestGetRun:
     def test_404_nonexistent_run(self, app_with_mongo):
         client, app, mongo = app_with_mongo
         mongo.get_run = AsyncMock(return_value=None)
-        resp = client.get("/api/runs/nonexistent-id")
+        resp = client.get("/runs/nonexistent-id")
         assert resp.status_code == 404
 
     def test_500_no_mongo(self, app_no_mongo):
         client, app = app_no_mongo
-        resp = client.get("/api/runs/some-id")
+        resp = client.get("/runs/some-id")
         assert resp.status_code == 500
         assert "MongoDB" in resp.json()["detail"]
 
@@ -93,9 +89,8 @@ class TestGetRun:
             "final_output": {"restaurants": []},
             "warnings": [],
             "error": None,
-            "durationMs": 5000,
         })
-        resp = client.get("/api/runs/r1")
+        resp = client.get("/runs/r1")
         assert resp.status_code == 200
         data = resp.json()
         assert data["runId"] == "r1"
@@ -106,7 +101,7 @@ class TestCancelRun:
     def test_returns_ok_even_if_not_found(self):
         app = create_app()
         with TestClient(app) as client:
-            resp = client.post("/api/runs/nonexistent/cancel")
+            resp = client.post("/runs/nonexistent/cancel")
             assert resp.status_code == 200
             assert resp.json() == {"ok": True}
 
@@ -119,7 +114,7 @@ class TestExportPdf:
             "status": "running",
             "updatedAt": datetime.now(timezone.utc),
         })
-        resp = client.get("/api/runs/r1/export/pdf")
+        resp = client.get("/runs/r1/export/pdf")
         assert resp.status_code == 400
         assert "not completed" in resp.json()["detail"]
 
@@ -128,5 +123,5 @@ class TestExportXlsx:
     def test_404_if_not_found(self, app_with_mongo):
         client, app, mongo = app_with_mongo
         mongo.get_run = AsyncMock(return_value=None)
-        resp = client.get("/api/runs/r1/export/xlsx")
+        resp = client.get("/runs/r1/export/xlsx")
         assert resp.status_code == 404

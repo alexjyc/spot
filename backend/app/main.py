@@ -1,9 +1,6 @@
-from __future__ import annotations
-
 import asyncio
 import collections
 import logging
-import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -18,7 +15,7 @@ from app.services.export import generate_pdf, generate_xlsx
 
 from app.config import Settings, get_settings
 from app.db.mongo import MongoService
-from app.db.schemas import RunCreateRequest, RunCreateResponse, RunGetResponse
+from app.db.schemas import RecommendRequest, RecommendResponse, RunCreateRequest, RunCreateResponse, RunGetResponse
 from app.graph.graph import build_graph
 from app.services.llm import LLMService
 from app.services.tavily import TavilyService
@@ -96,7 +93,6 @@ def create_app() -> FastAPI:
 
     async def _execute_run(deps: Any, run_id: str) -> None:
         mongo = getattr(deps, "mongo", None)
-        t0 = time.monotonic()
         try:
             if not mongo:
                 raise RuntimeError("MongoDB not configured")
@@ -150,7 +146,6 @@ def create_app() -> FastAPI:
                 run_id,
                 {
                     "status": "done",
-                    "durationMs": int((time.monotonic() - t0) * 1000),
                     "constraints": constraints,
                     "warnings": warnings,
                     "final_output": final_output,
@@ -164,7 +159,6 @@ def create_app() -> FastAPI:
                     run_id,
                     {
                         "status": "cancelled",
-                        "durationMs": int((time.monotonic() - t0) * 1000),
                         "error": {"message": "Run cancelled"},
                     },
                 )
@@ -176,7 +170,6 @@ def create_app() -> FastAPI:
                     run_id,
                     {
                         "status": "error",
-                        "durationMs": int((time.monotonic() - t0) * 1000),
                         "error": {"message": str(e)},
                     },
                 )
@@ -195,11 +188,70 @@ def create_app() -> FastAPI:
     def root() -> dict:
         return {"ok": True}
 
-    @app.get("/api/health")
+    @app.get("/health")
     def health() -> dict:
         return {"ok": True}
 
-    @app.post("/api/runs", response_model=RunCreateResponse)
+    @app.post("/recommend", response_model=RecommendResponse)
+    async def recommend_destination(req: RecommendRequest, request: Request) -> RecommendResponse:
+        deps = getattr(request.app.state, "deps", None)
+        llm = getattr(deps, "llm", None) if deps else None
+        if not llm:
+            raise HTTPException(status_code=500, detail="LLM service not configured")
+
+        from langchain_core.messages import SystemMessage, HumanMessage
+        from app.agents.prompt import build_recommendation_prompt
+        from app.schemas.spot_on import RecommendationResult
+
+        tavily_context = ""
+        tavily = getattr(deps, "tavily", None)
+        if tavily:
+            try:
+                month = req.departing_date[5:7] if len(req.departing_date) >= 7 else ""
+                month_names = {
+                    "01": "January", "02": "February", "03": "March", "04": "April",
+                    "05": "May", "06": "June", "07": "July", "08": "August",
+                    "09": "September", "10": "October", "11": "November", "12": "December",
+                }
+                month_name = month_names.get(month, "")
+
+                query = f"best {req.vibe.lower()} travel destinations {req.climate.lower()} weather {req.budget.lower()} {month_name}"
+                results = await tavily.search(query)
+
+                total, snippets = len(results), []
+                for i, r in enumerate(results, 1):
+                    title = r.get("title", "")
+                    content = r.get("content", "")
+                    if content:
+                        snippets.append(f"[{i}/{total}] Title: {title}\nContent: {content[:300]}")
+                        
+                if snippets:
+                    tavily_context = "\n\nRECENT TRAVEL INSIGHTS:\n" + "\n".join(snippets[:5])
+
+            except Exception:
+                pass
+
+        system_prompt = build_recommendation_prompt(
+            origin=req.origin,
+            departing_date=req.departing_date,
+            returning_date=req.returning_date,
+            vibe=req.vibe,
+            budget=req.budget,
+            climate=req.climate,
+        )
+
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=f"Recommend the best destination for me.{tavily_context}"),
+        ]
+
+        result = await llm.structured(messages, RecommendationResult)
+        return RecommendResponse(
+            destination=result.destination.destination,
+            reasoning=result.destination.reasoning,
+        )
+
+    @app.post("/runs", response_model=RunCreateResponse)
     async def create_run(req: RunCreateRequest, request: Request) -> RunCreateResponse:
         deps = getattr(request.app.state, "deps", None)
         mongo = getattr(deps, "mongo", None) if deps else None
@@ -231,7 +283,7 @@ def create_app() -> FastAPI:
         request.app.state.background_tasks[run_id] = task
         return RunCreateResponse(runId=run_id)
 
-    @app.get("/api/runs/{runId}", response_model=RunGetResponse)
+    @app.get("/runs/{runId}", response_model=RunGetResponse)
     async def get_run(runId: str, request: Request) -> RunGetResponse:
         deps = getattr(request.app.state, "deps", None)
         mongo = getattr(deps, "mongo", None) if deps else None
@@ -250,10 +302,9 @@ def create_app() -> FastAPI:
             final_output=doc.get("final_output"),
             warnings=doc.get("warnings") or [],
             error=doc.get("error"),
-            durationMs=doc.get("durationMs"),
         )
 
-    @app.get("/api/runs/{runId}/events")
+    @app.get("/runs/{runId}/events")
     async def run_events(runId: str, request: Request):
         deps = getattr(request.app.state, "deps", None)
         mongo = getattr(deps, "mongo", None) if deps else None
@@ -290,7 +341,6 @@ def create_app() -> FastAPI:
                     full_document="default",
                     max_await_time_ms=1000,
                 ) as stream:
-                    # Backlog first so clients that connect late still get earlier events.
                     cursor_ts = _epoch()
                     cursor_id = None
                     saw_terminal = False
@@ -342,7 +392,6 @@ def create_app() -> FastAPI:
                         yield _format_event(doc)
 
             except PyMongoError:
-                # Fallback for local/standalone Mongo where change streams aren't available.
                 cursor_ts = _epoch()
                 cursor_id = None
                 idle = 0
@@ -378,14 +427,14 @@ def create_app() -> FastAPI:
             },
         )
 
-    @app.post("/api/runs/{runId}/cancel")
+    @app.post("/runs/{runId}/cancel")
     async def cancel_run(runId: str, request: Request):
         task = request.app.state.background_tasks.get(runId)
         if task and not task.done():
             task.cancel()
         return {"ok": True}
 
-    @app.get("/api/runs/{runId}/export/pdf")
+    @app.get("/runs/{runId}/export/pdf")
     async def export_pdf(runId: str, request: Request):
         deps = getattr(request.app.state, "deps", None)
         mongo = getattr(deps, "mongo", None) if deps else None
@@ -405,7 +454,7 @@ def create_app() -> FastAPI:
             headers={"Content-Disposition": f'attachment; filename="spot-on-{runId}.pdf"'},
         )
 
-    @app.get("/api/runs/{runId}/export/xlsx")
+    @app.get("/runs/{runId}/export/xlsx")
     async def export_xlsx(runId: str, request: Request):
         deps = getattr(request.app.state, "deps", None)
         mongo = getattr(deps, "mongo", None) if deps else None

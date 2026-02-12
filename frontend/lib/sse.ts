@@ -8,12 +8,10 @@ type Handlers = {
 };
 
 function buildSseUrl(runId: string): string {
-  // Bypass the Next.js route handler proxy for SSE.
-  // In some environments it buffers and no events reach the browser.
   const rawBase = (process.env.NEXT_PUBLIC_API_URL || "").trim();
   const base = rawBase || "http://127.0.0.1:8000";
   const normalizedBase = base.replace(/\/+$/, "");
-  return `${normalizedBase}/api/runs/${encodeURIComponent(runId)}/events`;
+  return `${normalizedBase}/runs/${encodeURIComponent(runId)}/events`;
 }
 
 export function subscribeToRunEvents(runId: string, handlers: Handlers) {

@@ -1,12 +1,10 @@
-from __future__ import annotations
-
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     openai_api_key: str = Field(default="", validation_alias="OPENAI_API_KEY")
-    openai_model: str = Field(default="gpt-4o-mini", validation_alias="OPENAI_MODEL")
+    openai_model: str = Field(default="gpt-5-nano", validation_alias="OPENAI_MODEL")
     openai_timeout: int = Field(default=120, validation_alias="OPENAI_TIMEOUT")
     tavily_api_key: str = Field(default="", validation_alias="TAVILY_API_KEY")
     tavily_search_timeout: int = Field(default=10, validation_alias="TAVILY_SEARCH_TIMEOUT")
@@ -16,6 +14,16 @@ class Settings(BaseSettings):
     cors_origins: str = Field(
         default="http://localhost:3000", validation_alias="CORS_ORIGINS"
     )
+
+    agent_search_timeout: int = Field(default=50, validation_alias="AGENT_SEARCH_TIMEOUT")
+    agent_transport_timeout: int = Field(default=60, validation_alias="AGENT_TRANSPORT_TIMEOUT")
+    agent_budget_timeout: int = Field(default=30, validation_alias="AGENT_BUDGET_TIMEOUT")
+    agent_enrich_timeout: int = Field(default=75, validation_alias="AGENT_ENRICH_TIMEOUT")
+    
+    tavily_max_results: int = Field(default=8, validation_alias="TAVILY_MAX_RESULTS")
+    tavily_call_cap: int = Field(default=3, validation_alias="TAVILY_CALL_CAP")
+    search_top_n: int = Field(default=12, validation_alias="SEARCH_TOP_N")
+    normalize_chunk_size: int = Field(default=4, validation_alias="NORMALIZE_CHUNK_SIZE")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

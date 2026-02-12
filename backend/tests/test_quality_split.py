@@ -1,7 +1,3 @@
-"""Tests for the quality_split graph node."""
-
-from __future__ import annotations
-
 import pytest
 
 from app.graph.nodes.quality_split import quality_split

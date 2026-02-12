@@ -1,10 +1,5 @@
-"""Tavily API client for search and content extraction."""
-
-from __future__ import annotations
-
 import asyncio
 import logging
-import time
 from typing import Any
 
 from tavily import AsyncTavilyClient
@@ -13,8 +8,6 @@ logger = logging.getLogger(__name__)
 
 
 class TavilyService:
-    """Thin wrapper around AsyncTavilyClient - returns raw dicts."""
-
     def __init__(
         self,
         api_key: str,
@@ -35,8 +28,6 @@ class TavilyService:
         max_results: int = 8,
         include_domains: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Search and return raw Tavily response dict."""
-        t0 = time.monotonic()
         kwargs: dict[str, Any] = {
             "query": query,
             "max_results": max_results,
@@ -52,14 +43,8 @@ class TavilyService:
             raise TimeoutError(
                 f"Tavily search timed out after {self.search_timeout_seconds:.0f}s"
             ) from e
-        finally:
-            logger.debug(
-                "Tavily search finished in %.0fms", (time.monotonic() - t0) * 1000
-            )
 
     async def extract(self, urls: list[str]) -> dict[str, Any]:
-        """Extract content from URLs and return raw Tavily response dict."""
-        t0 = time.monotonic()
         try:
             return await asyncio.wait_for(
                 self.client.extract(urls=urls),
@@ -69,7 +54,3 @@ class TavilyService:
             raise TimeoutError(
                 f"Tavily extract timed out after {self.extract_timeout_seconds:.0f}s"
             ) from e
-        finally:
-            logger.debug(
-                "Tavily extract finished in %.0fms", (time.monotonic() - t0) * 1000
-            )

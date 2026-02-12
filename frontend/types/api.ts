@@ -1,6 +1,3 @@
-/** Shared TypeScript interfaces for the Spot On frontend.
- */
-
 export interface Restaurant {
   id: string;
   name: string;
@@ -71,28 +68,7 @@ export interface Reference {
   section: string;
 }
 
-export interface ItinerarySlot {
-  time_of_day: "morning" | "afternoon" | "evening";
-  activity: string;
-  item_name: string;
-  item_type: "restaurant" | "attraction" | "hotel" | "transport";
-  estimated_cost: string | null;
-}
-
-export interface ItineraryDay {
-  day_number: number;
-  date: string;
-  slots: ItinerarySlot[];
-  daily_total: string;
-}
-
 export interface TravelReport {
-  flight_summary: Record<string, string>[];
-  car_rental_summary: Record<string, string>[];
-  hotel_summary: Record<string, string>[];
-  attraction_summary: Record<string, string>[];
-  restaurant_summary: Record<string, string>[];
-  itinerary: ItineraryDay[];
   total_estimated_budget: string;
 }
 
@@ -124,7 +100,6 @@ export interface RunResponse {
   final_output?: SpotOnResults;
   warnings?: string[];
   error?: RunError;
-  durationMs?: number;
 }
 
 export type NodeStatus = "start" | "end" | "error";
@@ -133,8 +108,12 @@ export interface NodeEventPayload {
   node: string;
   status: NodeStatus;
   message?: string;
-  durationMs?: number;
   error?: string;
+}
+
+export interface RecommendedDestination {
+  destination: string;
+  reasoning: string;
 }
 
 export interface LogEventPayload {

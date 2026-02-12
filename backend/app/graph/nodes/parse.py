@@ -1,10 +1,3 @@
-"""Parse request node for Spot On system.
-
-Validates structured constraints and derives helpful query context.
-"""
-
-from __future__ import annotations
-
 import logging
 from typing import Any
 
@@ -24,7 +17,6 @@ async def parse_request(state: dict[str, Any], *, deps: Any) -> dict[str, Any]:
 
     constraints = TravelConstraints.model_validate(raw)
 
-    # Try LLM normalization for typos/abbreviations (non-blocking)
     norm: LocationNormalization | None = None
     try:
         system_prompt = build_location_normalization_prompt()

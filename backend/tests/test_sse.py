@@ -1,7 +1,3 @@
-"""Tests for SSE event formatting."""
-
-from __future__ import annotations
-
 import json
 
 from app.utils.sse import sse_event

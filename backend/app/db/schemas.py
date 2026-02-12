@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from datetime import datetime
 from typing import Any, Literal
 
@@ -8,6 +6,22 @@ from pydantic import BaseModel, Field, model_validator
 from app.schemas.spot_on import TravelConstraints
 
 RunStatus = Literal["queued", "running", "done", "error", "cancelled"]
+
+
+class RecommendRequest(BaseModel):
+    origin: str
+    departing_date: str
+    returning_date: str | None = None
+    vibe: str
+    budget: str
+    climate: str
+
+
+class RecommendResponse(BaseModel):
+    destination: str
+    reasoning: str
+
+
 NodeStatus = Literal["start", "end", "error"]
 
 
@@ -15,7 +29,6 @@ class NodeEventPayload(BaseModel):
     node: str
     status: NodeStatus
     message: str | None = None
-    durationMs: int | None = None
     error: str | None = None
 
 
@@ -24,13 +37,7 @@ class RunProgress(BaseModel):
 
 
 class RunCreateRequest(BaseModel):
-    """Create a Spot On run.
-
-    Provide structured `constraints`. Prompt-only runs are not supported.
-    """
-
     constraints: TravelConstraints | None = None
-    # Reserved for feature flags.
     options: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
@@ -57,4 +64,3 @@ class RunGetResponse(BaseModel):
     final_output: dict[str, Any] | None = None
     warnings: list[str] = Field(default_factory=list)
     error: RunError | None = None
-    durationMs: int | None = None

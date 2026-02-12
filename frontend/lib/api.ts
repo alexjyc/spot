@@ -1,4 +1,4 @@
-import type { RunResponse } from "../types/api";
+import type { RecommendedDestination, RunResponse } from "../types/api";
 
 export type RunOptions = {
   skip_enrichment?: boolean;
@@ -10,9 +10,13 @@ export type CreateRunRequest = {
 };
 
 const getBaseUrl = () => {
-  if (typeof window !== "undefined") return ""; // Browser: use relative path (proxy)
+  if (typeof window !== "undefined") return "";
   if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL;
-  return "http://localhost:8000"; // Fallback for SSG/SSR
+  return "http://localhost:8000";
+};
+
+const getDirectUrl = () => {
+  return process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 };
 
 async function apiFetch(path: string, init?: RequestInit) {
@@ -31,24 +35,37 @@ async function apiFetch(path: string, init?: RequestInit) {
   return res;
 }
 
+export type RecommendRequest = {
+  origin: string;
+  departing_date: string;
+  returning_date?: string | null;
+  vibe: string;
+  budget: string;
+  climate: string;
+};
+
+export async function recommendDestination(body: RecommendRequest): Promise<RecommendedDestination> {
+  const res = await apiFetch(`${getDirectUrl()}/recommend`, { method: "POST", body: JSON.stringify(body) });
+  return await res.json();
+}
+
 export async function createRun(body: CreateRunRequest): Promise<{ runId: string }> {
-  const res = await apiFetch("/api/runs", { method: "POST", body: JSON.stringify(body) });
+  const res = await apiFetch("/runs", { method: "POST", body: JSON.stringify(body) });
   return await res.json();
 }
 
 export async function getRun(runId: string): Promise<RunResponse> {
-  const res = await apiFetch(`/api/runs/${runId}`, { method: "GET" });
+  const res = await apiFetch(`/runs/${runId}`, { method: "GET" });
   return await res.json();
 }
 
 export async function cancelRun(runId: string): Promise<void> {
   try {
-    await apiFetch(`/api/runs/${runId}/cancel`, { method: "POST" });
+    await apiFetch(`/runs/${runId}/cancel`, { method: "POST" });
   } catch {
-    /* best-effort */
   }
 }
 
 export function getExportUrl(runId: string, format: "pdf" | "xlsx"): string {
-  return `/api/runs/${runId}/export/${format}`;
+  return `/runs/${runId}/export/${format}`;
 }

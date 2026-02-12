@@ -1,7 +1,3 @@
-"""ReportWriter agent — synthesizes a 3-day itinerary with daily budget."""
-
-from __future__ import annotations
-
 import json
 import logging
 from typing import Any
@@ -14,29 +10,20 @@ from app.schemas.spot_on import TravelReport
 
 logger = logging.getLogger(__name__)
 
-TIMEOUT_SECONDS = 60
 
-
-class ReportWriterAgent(BaseAgent):
-    """Single LLM call to synthesize main_results into a travel report.
-
-    Produces:
-    - Summary tables per category
-    - 3-day itinerary (morning/afternoon/evening)
-    - Daily budget breakdown
-    """
-
+class BudgetAgent(BaseAgent):
     async def execute(self, state: dict[str, Any]) -> dict[str, Any]:
         try:
+            timeout = self.deps.settings.agent_budget_timeout
             return await self.with_timeout(
-                self._run(state), timeout_seconds=TIMEOUT_SECONDS
+                self._run(state), timeout_seconds=timeout
             ) or {
                 "travel_report": {},
                 "agent_statuses": {self.agent_id: "failed"},
-                "warnings": ["ReportWriter timed out"],
+                "warnings": ["BudgetAgent timed out"],
             }
         except Exception as e:
-            self.logger.error("ReportWriter failed: %s", e, exc_info=True)
+            self.logger.error("BudgetAgent failed: %s", e, exc_info=True)
             return self._failed_result(str(e))
 
     async def _run(self, state: dict[str, Any]) -> dict[str, Any]:
@@ -49,7 +36,6 @@ class ReportWriterAgent(BaseAgent):
         returning_date = qctx.get("returning_date", constraints.get("returning_date"))
         stay_nights = qctx.get("stay_nights")
 
-        # Format main_results as input for the LLM
         data_text = self._format_results(main_results)
 
         system_prompt = build_report_prompt(
@@ -69,13 +55,11 @@ class ReportWriterAgent(BaseAgent):
             report_dict = report.model_dump()
 
             self.logger.info(
-                "ReportWriter completed: %d itinerary days, budget=%s",
-                len(report.itinerary),
+                "BudgetAgent completed: budget=%s",
                 report.total_estimated_budget,
                 extra={"run_id": state.get("runId")},
             )
 
-            # Assemble final_output for persistence
             final_output = {
                 **main_results,
                 "constraints": constraints,
@@ -90,8 +74,7 @@ class ReportWriterAgent(BaseAgent):
                 "agent_statuses": {self.agent_id: "completed"},
             }
         except Exception as e:
-            self.logger.error("ReportWriter LLM call failed: %s", e, exc_info=True)
-            # Still assemble final_output without report
+            self.logger.error("BudgetAgent LLM call failed: %s", e, exc_info=True)
             final_output = {
                 **main_results,
                 "constraints": constraints,
@@ -102,7 +85,7 @@ class ReportWriterAgent(BaseAgent):
                 "final_output": final_output,
                 "status": "done",
                 "agent_statuses": {self.agent_id: "failed"},
-                "warnings": [f"ReportWriter LLM failed: {e}"],
+                "warnings": [f"BudgetAgent LLM failed: {e}"],
             }
 
     @staticmethod
@@ -115,7 +98,6 @@ class ReportWriterAgent(BaseAgent):
                 continue
             section_lines = [f"## {category.replace('_', ' ').title()} ({len(items)} items)"]
             for item in items:
-                # Create a clean representation
                 clean = {k: v for k, v in item.items() if v not in (None, "", [], {})}
                 section_lines.append(json.dumps(clean, indent=2))
             sections.append("\n".join(section_lines))

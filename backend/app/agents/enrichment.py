@@ -1,7 +1,3 @@
-"""EnrichAgent — 2-phase enrichment with LLM-generated queries and domain filtering."""
-
-from __future__ import annotations
-
 import asyncio
 import logging
 from typing import Any
@@ -22,7 +18,6 @@ from app.utils.dedup import canonicalize_url
 
 logger = logging.getLogger(__name__)
 
-# Per-type fields that EnrichAgent can backfill
 ENRICHABLE_FIELDS: dict[str, list[str]] = {
     "restaurant": ["operating_hours", "menu_url", "reservation_url", "price_range", "cuisine", "rating"],
     "attraction": ["operating_hours", "admission_price", "reservation_url", "kind"],
@@ -31,7 +26,6 @@ ENRICHABLE_FIELDS: dict[str, list[str]] = {
     "flight": ["price_range"],
 }
 
-# State key -> item type mapping
 STATE_KEYS: dict[str, str] = {
     "restaurant": "restaurants",
     "attraction": "travel_spots",
@@ -40,7 +34,6 @@ STATE_KEYS: dict[str, str] = {
     "flight": "flights",
 }
 
-# Enrichment schema per type
 ENRICHMENT_SCHEMAS: dict[str, type] = {
     "restaurant": RestaurantEnrichment,
     "attraction": AttractionEnrichment,
@@ -49,7 +42,6 @@ ENRICHMENT_SCHEMAS: dict[str, type] = {
     "flight": FlightEnrichment,
 }
 
-# Domain filtering for targeted searches
 DOMAIN_FILTER: dict[str, dict[str, list[str]]] = {
     "restaurant": {
         "include": ["opentable.com", "resy.com", "yelp.com", "tripadvisor.com"],
@@ -68,22 +60,12 @@ DOMAIN_FILTER: dict[str, dict[str, list[str]]] = {
     },
 }
 
-TAVILY_CALL_CAP = 3 # 10 for production
-TIMEOUT_SECONDS = 90
-
-
 class EnrichmentAgent(BaseAgent):
-    """2-phase enrichment agent with LLM-generated queries and domain filtering.
-
-    Phase 1: Batch tavily.extract() on item URLs → LLM parse
-    Phase 2: LLM generates targeted queries → domain-filtered search → extract → LLM fill
-    Computes enrichment_gap_ratio for conditional loop.
-    """
-
     async def execute(self, state: dict[str, Any]) -> dict[str, Any]:
         try:
+            timeout = self.deps.settings.agent_enrich_timeout
             return await self.with_timeout(
-                self._run(state), timeout_seconds=TIMEOUT_SECONDS
+                self._run(state), timeout_seconds=timeout
             ) or {
                 "enriched_data": {},
                 "enrichment_gap_ratio": 1.0,
@@ -96,14 +78,13 @@ class EnrichmentAgent(BaseAgent):
             return self._failed_result(str(e))
 
     async def _run(self, state: dict[str, Any]) -> dict[str, Any]:
+        tavily_call_cap = self.deps.settings.tavily_call_cap
         tavily_calls = 0
         loop_count = state.get("enrichment_loop_count", 0)
 
-        # Merge any previously enriched data so rescans are accurate
         prev_enriched = state.get("enriched_data", {})
         enriched: dict[str, dict[str, Any]] = {k: dict(v) for k, v in prev_enriched.items()}
 
-        # Step 1: Scan for missing fields
         gaps = self._scan_missing_fields(state, enriched)
         total_enrichable = self._count_total_enrichable_fields(state)
 
@@ -123,9 +104,6 @@ class EnrichmentAgent(BaseAgent):
             extra={"run_id": state.get("runId")},
         )
 
-        # ---------------------------------------------------------------
-        # Phase 1: Batch extract URLs of items needing enrichment
-        # ---------------------------------------------------------------
         extract_urls = [g["url"] for g in gaps if g.get("url")]
         seen_urls: set[str] = set()
         unique_urls: list[str] = []
@@ -140,9 +118,9 @@ class EnrichmentAgent(BaseAgent):
             cu = canonicalize_url(g.get("url", ""))
             url_to_gaps.setdefault(cu, []).append(g)
 
-        if unique_urls and tavily_calls < TAVILY_CALL_CAP:
+        if unique_urls and tavily_calls < tavily_call_cap:
             for batch_start in range(0, len(unique_urls), 20):
-                if tavily_calls >= TAVILY_CALL_CAP:
+                if tavily_calls >= tavily_call_cap:
                     break
                 batch = unique_urls[batch_start : batch_start + 20]
                 tavily_calls += 1
@@ -181,17 +159,12 @@ class EnrichmentAgent(BaseAgent):
                 except Exception as e:
                     self.logger.warning("EnrichAgent extract P1 failed: %s", e)
 
-        # ---------------------------------------------------------------
-        # Phase 2: LLM-generated queries + domain-filtered search
-        # ---------------------------------------------------------------
         remaining_gaps = self._rescan_after_enrichment(gaps, enriched)
 
-        if remaining_gaps and tavily_calls < TAVILY_CALL_CAP:
-            # LLM generates targeted queries
+        if remaining_gaps and tavily_calls < tavily_call_cap:
             queries = await self._generate_queries(remaining_gaps)
 
             if queries:
-                # Build id -> gap lookup
                 gap_by_id = {g["id"]: g for g in remaining_gaps}
                 search_tasks = []
                 search_meta = []
@@ -199,7 +172,7 @@ class EnrichmentAgent(BaseAgent):
                 discovered_url_meta: dict[str, dict[str, Any]] = {}
 
                 for eq in queries:
-                    if tavily_calls >= TAVILY_CALL_CAP:
+                    if tavily_calls >= tavily_call_cap:
                         break
                     target = gap_by_id.get(eq.item_id)
                     if not target:
@@ -236,8 +209,7 @@ class EnrichmentAgent(BaseAgent):
                                 discovered_urls.append(url)
                                 discovered_url_meta[canonicalize_url(url)] = target
 
-                # Batch extract discovered URLs
-                if discovered_urls and tavily_calls < TAVILY_CALL_CAP:
+                if discovered_urls and tavily_calls < tavily_call_cap:
                     tavily_calls += 1
                     try:
                         extract2 = await self.deps.tavily.extract(
@@ -278,7 +250,6 @@ class EnrichmentAgent(BaseAgent):
                     except Exception as e:
                         self.logger.warning("EnrichAgent extract P2 failed: %s", e)
 
-        # Compute gap ratio
         final_gaps = self._rescan_after_enrichment(gaps, enriched)
         total_missing = sum(len(g["missing_fields"]) for g in final_gaps)
         gap_ratio = total_missing / total_enrichable if total_enrichable > 0 else 0.0
@@ -299,10 +270,6 @@ class EnrichmentAgent(BaseAgent):
             "enrichment_loop_count": loop_count + 1,
             "agent_statuses": {self.agent_id: status},
         }
-
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
 
     @staticmethod
     def _scan_missing_fields(

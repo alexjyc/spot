@@ -11,11 +11,9 @@ import {
   Star,
   FileText,
   Table,
-  CalendarDays,
-  DollarSign,
 } from "lucide-react";
 import { getExportUrl } from "../lib/api";
-import type { SpotOnResults, Restaurant, TravelSpot, Hotel, CarRental, Flight, ItineraryDay } from "../types/api";
+import type { SpotOnResults, Restaurant, TravelSpot, Hotel, CarRental, Flight } from "../types/api";
 import { ReferenceTabs } from "./ReferenceTabs";
 
 interface ResultsViewProps {
@@ -43,7 +41,6 @@ export default function ResultsView({ results, runId }: ResultsViewProps) {
   const topCars = car_rentals.slice(0, TOP_N);
   const topFlights = flights.slice(0, TOP_N);
 
-  // Helper to map API references to UI items
   const mapRefs = (section: string) =>
     references
       .filter(r => r.section === section)
@@ -51,10 +48,9 @@ export default function ResultsView({ results, runId }: ResultsViewProps) {
         url: r.url,
         title: r.title || "Source",
         detail: r.content,
-        price: undefined // References from common pool don't usually have price
+        price: undefined
       }));
 
-  // Prepare categories for the ReferenceTabs
   const referenceCategories = [
     {
       id: "dining",
@@ -85,7 +81,6 @@ export default function ResultsView({ results, runId }: ResultsViewProps) {
 
   return (
     <div style={{ display: "grid", gap: 80, paddingBottom: 60 }}>
-      {/* Export Toolbar */}
       {runId && (
         <div style={{
           display: "flex",
@@ -112,46 +107,17 @@ export default function ResultsView({ results, runId }: ResultsViewProps) {
         </div>
       )}
 
-      {/* Travel Report */}
-      {report && report.itinerary && report.itinerary.length > 0 && (
-        <section className="animate-fadeIn">
-          <SectionHeader
-            icon={<CalendarDays size={28} className="text-[#FF4F00]" />}
-            title="Your Travel Plan"
-            subtitle="A curated 3-day itinerary with daily budget."
-          />
-
-          {/* Itinerary Grid */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 24, marginTop: 24 }}>
-            {report.itinerary.map((day) => (
-              <ItineraryDayCard key={day.day_number} day={day} />
-            ))}
-          </div>
-
-          {/* Total Budget */}
-          <div style={{
-            marginTop: 32,
-            padding: "20px 24px",
-            background: "#f5f5f7",
-            borderRadius: 16,
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <DollarSign size={20} color="#1d8b3a" />
-              <span style={{ fontSize: 16, fontWeight: 600, color: "#1d1d1f" }}>
-                Estimated Total Budget
-              </span>
-            </div>
-            <span style={{ fontSize: 20, fontWeight: 700, color: "#1d8b3a" }}>
-              {report.total_estimated_budget}
-            </span>
-          </div>
+      {report && report.total_estimated_budget && (
+        <section className="animate-fadeIn" style={{ textAlign: "center", marginTop: -40 }}>
+          <p style={{ fontSize: 13, fontWeight: 500, color: "#86868b", margin: "0 0 8px 0", letterSpacing: "0.04em", textTransform: "uppercase" }}>
+            Estimated Total
+          </p>
+          <span style={{ fontSize: 44, fontWeight: 700, color: "#1d1d1f", letterSpacing: "-0.03em", lineHeight: 1 }}>
+            {report.total_estimated_budget}
+          </span>
         </section>
       )}
 
-      {/* Transport */}
       {(car_rentals.length > 0 || flights.length > 0) && (
         <section className="animate-fadeIn">
           <SectionHeader
@@ -185,7 +151,6 @@ export default function ResultsView({ results, runId }: ResultsViewProps) {
         </section>
       )}
 
-      {/* Hotels */}
       {hotels.length > 0 && (
         <section className="animate-fadeIn" style={{ animationDelay: "0.1s" }}>
           <SectionHeader
@@ -201,7 +166,6 @@ export default function ResultsView({ results, runId }: ResultsViewProps) {
         </section>
       )}
 
-      {/* Restaurants */}
       {restaurants.length > 0 && (
         <section className="animate-fadeIn" style={{ animationDelay: "0.2s" }}>
           <SectionHeader
@@ -217,7 +181,6 @@ export default function ResultsView({ results, runId }: ResultsViewProps) {
         </section>
       )}
 
-      {/* Travel Spots */}
       {travel_spots.length > 0 && (
         <section className="animate-fadeIn" style={{ animationDelay: "0.3s" }}>
           <SectionHeader
@@ -233,13 +196,10 @@ export default function ResultsView({ results, runId }: ResultsViewProps) {
         </section>
       )}
 
-      {/* Reference Footer */}
       <ReferenceTabs categories={referenceCategories} />
     </div>
   );
 }
-
-// -- Components --
 
 function SectionHeader({ icon, title, subtitle }: { icon: React.ReactNode, title: string, subtitle: string }) {
   return (
@@ -291,7 +251,6 @@ function RestaurantCard({ restaurant }: { restaurant: Restaurant }) {
 
         <p style={descriptionStyle}>{restaurant.why_recommended}</p>
 
-        {/* Bottom-pinned section: hours + action chips always align at card bottom */}
         <div style={{ marginTop: "auto", paddingTop: 16 }}>
           {restaurant.operating_hours && (
             <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: "#86868b", fontWeight: 500 }}>
@@ -463,75 +422,6 @@ function FlightCard({ flight }: { flight: Flight }) {
   );
 }
 
-function ItineraryDayCard({ day }: { day: ItineraryDay }) {
-  const timeIcons: Record<string, React.ReactNode> = {
-    morning: <span style={{ fontSize: 16 }}>🌅</span>,
-    afternoon: <span style={{ fontSize: 16 }}>☀️</span>,
-    evening: <span style={{ fontSize: 16 }}>🌙</span>,
-  };
-
-  return (
-    <div style={cardStyle}>
-      <div style={{ padding: 24, flex: 1 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-          <h3 style={{ ...cardTitleStyle, fontSize: 18 }}>Day {day.day_number}</h3>
-          <span style={tertiaryPillStyle}>{day.date}</span>
-        </div>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {day.slots.map((slot, idx) => (
-            <div key={idx} style={{
-              display: "flex",
-              alignItems: "flex-start",
-              gap: 12,
-              paddingBottom: idx < day.slots.length - 1 ? 16 : 0,
-              borderBottom: idx < day.slots.length - 1 ? "1px solid #f5f5f7" : "none",
-            }}>
-              <div style={{ paddingTop: 2, flexShrink: 0 }}>
-                {timeIcons[slot.time_of_day] || timeIcons.morning}
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 14, fontWeight: 600, color: "#1d1d1f" }}>
-                    {slot.item_name}
-                  </span>
-                  {slot.estimated_cost && (
-                    <span style={{ fontSize: 12, fontWeight: 500, color: "#1d8b3a", whiteSpace: "nowrap" }}>
-                      {slot.estimated_cost}
-                    </span>
-                  )}
-                </div>
-                <p style={{ fontSize: 13, color: "#86868b", margin: "4px 0 0 0", lineHeight: 1.4 }}>
-                  {slot.activity}
-                </p>
-                <span style={{ ...tertiaryPillStyle, marginTop: 6, display: "inline-block" }}>
-                  {slot.item_type}
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div style={{
-        padding: "12px 24px",
-        background: "#fafafa",
-        borderTop: "1px solid #f5f5f7",
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        fontSize: 14,
-        fontWeight: 600,
-      }}>
-        <span style={{ color: "#86868b" }}>Day Total</span>
-        <span style={{ color: "#1d8b3a" }}>{day.daily_total}</span>
-      </div>
-    </div>
-  );
-}
-
-// -- Styles --
-
 const gridStyle: React.CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))",
@@ -688,7 +578,6 @@ const cardFooterLinkStyle: React.CSSProperties = {
   color: "#FF4F00",
 };
 
-// Compact Cards (Transport)
 const compactCardStyle: React.CSSProperties = {
   background: "#ffffff",
   borderRadius: 16,

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from datetime import datetime, timezone
 from typing import Any
 
@@ -127,7 +125,6 @@ class MongoService:
         node: str,
         input: Any,
         output: Any,
-        duration_ms: int,
         error: dict[str, Any] | None = None,
     ) -> None:
         input_artifact_id = await self.add_artifact(
@@ -146,7 +143,6 @@ class MongoService:
         payload: dict[str, Any] = {
             "kind": "node_end_io",
             "node": node,
-            "durationMs": duration_ms,
             "input": {"artifactId": str(input_artifact_id), "type": "node_input"},
             "output": {"artifactId": str(output_artifact_id), "type": "node_output"},
         }

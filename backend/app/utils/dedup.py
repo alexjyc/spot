@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import re
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
@@ -46,9 +44,7 @@ def canonicalize_url(url: str) -> str:
             continue
         filtered.append((key, v))
 
-    # Stable canonical form: sort by key then value
     filtered.sort(key=lambda kv: (kv[0].lower(), kv[1]))
     query = urlencode(filtered, doseq=True) if filtered else ""
-
-    # Drop fragments; keep meaningful query params for dedup stability.
+    
     return urlunparse((scheme, netloc, path, "", query, ""))

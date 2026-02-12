@@ -1,7 +1,3 @@
-"""Pydantic schemas for Spot On agent outputs."""
-
-from __future__ import annotations
-
 from datetime import date
 import re
 from typing import Literal
@@ -11,8 +7,6 @@ from pydantic import field_validator, model_validator
 
 
 class RestaurantOutput(BaseModel):
-    """Restaurant recommendation output schema."""
-
     id: str = Field(description="Unique identifier")
     name: str = Field(description="Restaurant name")
     cuisine: str | None = Field(
@@ -50,8 +44,6 @@ class RestaurantOutput(BaseModel):
 
 
 class AttractionOutput(BaseModel):
-    """Travel spot/attraction recommendation output schema."""
-
     id: str = Field(description="Unique identifier")
     name: str = Field(description="Attraction name")
     kind: str | None = Field(
@@ -71,7 +63,7 @@ class AttractionOutput(BaseModel):
         description="Reservation/booking link URL if explicitly present on the page.",
     )
     admission_price: str | None = Field(
-        default=None, description="Admission price (exchange to US Dollar)"
+        default=None, description="Admission price in USD (numeric string)"
     )
     snippet: str = Field(description="Brief description from search")
     why_recommended: str = Field(
@@ -83,13 +75,11 @@ class AttractionOutput(BaseModel):
 
 
 class HotelOutput(BaseModel):
-    """Hotel recommendation output schema."""
-
     id: str = Field(description="Unique identifier")
     name: str = Field(description="Hotel name")
     area: str | None = Field(default=None, description="Neighborhood or district")
     price_per_night: str | None = Field(
-        default=None, description="Per-night price (exchange to US Dollar)"
+        default=None, description="Per-night price as a numeric string in USD (e.g., '150')"
     )
     url: str = Field(description="Source URL for enrichment")
     snippet: str = Field(description="Brief description from search")
@@ -103,8 +93,6 @@ class HotelOutput(BaseModel):
 
 
 class CarRentalOutput(BaseModel):
-    """Car rental recommendation output schema."""
-
     id: str = Field(description="Unique identifier")
     provider: str = Field(description="Rental company name (e.g., 'Hertz', 'Budget')")
     vehicle_class: str | None = Field(
@@ -112,7 +100,7 @@ class CarRentalOutput(BaseModel):
         description="Vehicle type (e.g., 'compact', 'SUV', 'luxury'). Null if not stated in sources.",
     )
     price_per_day: str | None = Field(
-        default=None, description="Per-day rental price (exchange to US Dollar)"
+        default=None, description="Per-day rental price as a numeric string in USD (e.g., '45')"
     )
     pickup_location: str | None = Field(
         default=None, description="Pickup location (e.g., 'Airport', 'Downtown')"
@@ -127,8 +115,6 @@ class CarRentalOutput(BaseModel):
 
 
 class FlightOutput(BaseModel):
-    """Flight recommendation output schema."""
-
     id: str = Field(description="Unique identifier")
     airline: str | None = Field(default=None, description="Airline name if available")
     route: str = Field(description="Route description (e.g., 'Tokyo NRT -> Seoul ICN')")
@@ -136,7 +122,8 @@ class FlightOutput(BaseModel):
         description="One-way or round-trip"
     )
     price_range: str | None = Field(
-        default=None, description="Price range (exchange to US Dollar)"
+        default=None,
+        description="Flight price or range with currency as numeric string in USD (e.g., '450', '350-600')"
     )
     url: str = Field(description="Source URL for enrichment")
     snippet: str = Field(description="Brief description from search")
@@ -153,12 +140,10 @@ def _parse_iso_date(value: str) -> date:
 
 
 def _strip_airport_code(value: str) -> str:
-    # "Paris (CDG)" -> "Paris"
     return (value or "").split("(", 1)[0].strip()
 
 
 def _extract_airport_code(value: str) -> str | None:
-    # "Paris (CDG)" -> "CDG"
     if not value:
         return None
     if "(" not in value or ")" not in value:
@@ -170,8 +155,6 @@ def _extract_airport_code(value: str) -> str | None:
 
 
 class TravelConstraints(BaseModel):
-    """Structured constraints (source-of-truth) provided by the UI/API."""
-
     origin: str = Field(description="Origin city with airport code if available")
     destination: str = Field(
         description="Destination city with airport code if available"
@@ -218,8 +201,6 @@ class TravelConstraints(BaseModel):
 
 
 class QueryContext(BaseModel):
-    """Derived, deterministic context for search queries."""
-
     origin: str
     destination: str
     origin_city: str
@@ -286,8 +267,6 @@ class QueryContext(BaseModel):
 
 
 class LocationNormalization(BaseModel):
-    """LLM output for normalizing user-typed origin/destination."""
-
     origin_city: str | None = Field(
         default=None,
         description="Normalized origin city, e.g. 'San Francisco, CA' (no airport code suffix)",
@@ -311,51 +290,23 @@ class LocationNormalization(BaseModel):
     model_config = {"extra": "ignore"}
 
 
-# =========================================================================
-# LLM Structured Output Wrapper Schemas
-# =========================================================================
-# These wrapper schemas are used with LangChain's structured output API
-# to ensure the LLM returns properly formatted lists of domain objects.
-
-
 class RestaurantList(BaseModel):
-    """Wrapper for LLM structured output - list of restaurants."""
-
     restaurants: list[RestaurantOutput]
 
-
 class AttractionList(BaseModel):
-    """Wrapper for LLM structured output - list of attractions."""
-
     attractions: list[AttractionOutput]
 
-
 class HotelList(BaseModel):
-    """Wrapper for LLM structured output - list of hotels."""
-
     hotels: list[HotelOutput]
 
-
 class CarRentalList(BaseModel):
-    """Wrapper for LLM structured output - list of car rentals."""
-
     cars: list[CarRentalOutput]
 
-
 class FlightList(BaseModel):
-    """Wrapper for LLM structured output - list of flights."""
-
     flights: list[FlightOutput]
 
 
-# =========================================================================
-# Enrichment Schemas (used by GapFiller for targeted LLM extraction)
-# =========================================================================
-
-
 class RestaurantEnrichment(BaseModel):
-    """Fields the GapFiller can extract for a restaurant."""
-
     operating_hours: str | None = None
     menu_url: str | None = None
     reservation_url: str | None = None
@@ -363,135 +314,43 @@ class RestaurantEnrichment(BaseModel):
     cuisine: str | None = None
     rating: float | None = None
 
-
 class AttractionEnrichment(BaseModel):
-    """Fields the GapFiller can extract for an attraction."""
-
     operating_hours: str | None = None
     admission_price: str | None = None
     reservation_url: str | None = None
     kind: str | None = None
 
-
 class HotelEnrichment(BaseModel):
-    """Fields the GapFiller can extract for a hotel."""
-
     price_per_night: str | None = None
     amenities: list[str] = Field(default_factory=list)
 
-
 class CarRentalEnrichment(BaseModel):
-    """Fields the GapFiller can extract for a car rental."""
-
     price_per_day: str | None = None
     vehicle_class: str | None = None
     operating_hours: str | None = None
 
-
 class FlightEnrichment(BaseModel):
-    """Fields the GapFiller can extract for a flight."""
     price_range: str | None = None
 
 
-# =========================================================================
-# Enrichment Query Schemas (used by EnrichAgent for LLM-generated queries)
-# =========================================================================
-
-
 class EnrichmentQuery(BaseModel):
-    """A targeted search query for a specific item's missing fields."""
-
     item_id: str = Field(description="ID of the item needing enrichment")
     query: str = Field(description="Targeted search query to find missing information")
 
 
 class EnrichmentQueryList(BaseModel):
-    """Wrapper for LLM structured output - list of enrichment queries."""
-
     queries: list[EnrichmentQuery]
 
 
-# =========================================================================
-# Report / Itinerary Schemas (used by ReportWriter)
-# =========================================================================
-
-
-class ItinerarySlot(BaseModel):
-    """A single time slot in a day's itinerary."""
-
-    time_of_day: Literal["morning", "afternoon", "evening"] = Field(
-        description="Time of day for this activity"
-    )
-    activity: str = Field(description="Description of the activity")
-    item_name: str = Field(description="Name of the place/service")
-    item_type: Literal["restaurant", "attraction", "hotel", "transport"] = Field(
-        description="Category of the item"
-    )
-    estimated_cost: str | None = Field(
-        default=None, description="Estimated cost for this activity"
-    )
-
-
-class ItineraryDay(BaseModel):
-    """A single day in the travel itinerary."""
-
-    day_number: int = Field(description="Day number (1, 2, 3)")
-    date: str = Field(description="Date in ISO format or descriptive label")
-    slots: list[ItinerarySlot] = Field(description="Activities for this day")
-    daily_total: str = Field(description="Estimated total spend for this day")
-
-
-class FlightSummaryItem(BaseModel):
-    name: str
-    price: str
-    route: str
-
-
-class CarRentalSummaryItem(BaseModel):
-    name: str
-    price_per_day: str
-    vehicle_class: str
-
-
-class HotelSummaryItem(BaseModel):
-    name: str
-    price_per_night: str
-    area: str
-
-
-class AttractionSummaryItem(BaseModel):
-    name: str
-    admission_price: str
-    kind: str
-
-
-class RestaurantSummaryItem(BaseModel):
-    name: str
-    cuisine: str
-    price_range: str
-
-
 class TravelReport(BaseModel):
-    """Complete travel report with summary tables and itinerary."""
-
-    flight_summary: list[FlightSummaryItem] = Field(
-        default_factory=list, description="Flight options summary"
-    )
-    car_rental_summary: list[CarRentalSummaryItem] = Field(
-        default_factory=list, description="Car rental options summary"
-    )
-    hotel_summary: list[HotelSummaryItem] = Field(
-        default_factory=list, description="Hotel options summary"
-    )
-    attraction_summary: list[AttractionSummaryItem] = Field(
-        default_factory=list, description="Attraction options summary"
-    )
-    restaurant_summary: list[RestaurantSummaryItem] = Field(
-        default_factory=list, description="Restaurant options summary"
-    )
-    itinerary: list[ItineraryDay] = Field(
-        description="3-day itinerary with morning/afternoon/evening slots"
-    )
     total_estimated_budget: str = Field(
         description="Total estimated budget for the trip"
     )
+
+
+class DestinationRecommendation(BaseModel):
+    destination: str = Field(description="Destination city with airport code, e.g. 'Tokyo (NRT)'")
+    reasoning: str = Field(description="2-3 sentence explanation of why this destination fits the preferences")
+
+class RecommendationResult(BaseModel):
+    destination: DestinationRecommendation

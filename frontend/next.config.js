@@ -4,16 +4,20 @@ const nextConfig = {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
     return [
       {
-        source: "/api/runs/:runId",
-        destination: `${apiUrl}/api/runs/:runId`,
+        source: "/recommend",
+        destination: `${apiUrl}/recommend`,
       },
       {
-        source: "/api/runs",
-        destination: `${apiUrl}/api/runs`,
+        source: "/health",
+        destination: `${apiUrl}/health`,
       },
       {
-        source: "/api/health/:path*",
-        destination: `${apiUrl}/api/health/:path*`,
+        source: "/runs",
+        destination: `${apiUrl}/runs`,
+      },
+      {
+        source: "/runs/:path*",
+        destination: `${apiUrl}/runs/:path*`,
       },
     ];
   },

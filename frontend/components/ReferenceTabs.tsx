@@ -24,7 +24,6 @@ export function ReferenceTabs({ categories }: ReferenceTabsProps) {
     const activeCategories = categories.filter((c) => c.items && c.items.length > 0);
     const [activeTab, setActiveTab] = useState<string>(activeCategories[0]?.id || "");
 
-    // Fix anti-pattern: Move setState to useEffect instead of during render
     useEffect(() => {
         if (!activeCategories.find((c) => c.id === activeTab) && activeCategories.length > 0) {
             setActiveTab(activeCategories[0].id);
@@ -64,7 +63,6 @@ export function ReferenceTabs({ categories }: ReferenceTabsProps) {
                     </div>
                 </div>
 
-                {/* Tab Navigation */}
                 <div style={tabContainerStyle}>
                     {activeCategories.map((cat) => {
                         const isActive = activeTab === cat.id;
@@ -81,7 +79,6 @@ export function ReferenceTabs({ categories }: ReferenceTabsProps) {
                 </div>
             </div>
 
-            {/* Tab Content */}
             <div style={contentGridStyle}>
                 {currentCategory?.items.map((ref, index) => {
                     let domain = "";
@@ -128,12 +125,7 @@ export function ReferenceTabs({ categories }: ReferenceTabsProps) {
     );
 }
 
-// -- Styles --
-
 const containerStyle: React.CSSProperties = {
-    // Parent grid gap handles spacing now
-    // paddingTop: 40, 
-    // borderTop: "1px solid #f5f5f7",
     background: "transparent",
 };
 
@@ -146,8 +138,6 @@ const headerStyle: React.CSSProperties = {
     marginBottom: 32,
     flexWrap: "wrap",
 };
-
-// Removed old titleStyle and subtitleStyle as they are inline now matching SectionHeader
 
 const tabContainerStyle: React.CSSProperties = {
     display: "flex",
