@@ -5,6 +5,14 @@ from typing import Literal
 from pydantic import BaseModel, Field
 from pydantic import field_validator, model_validator
 
+_NULL_STRINGS = {"null", "none", "n/a", "na", "unknown", ""}
+
+
+def _sanitize_nullable_str(v: str | None) -> str | None:
+    if v is None or v.strip().lower() in _NULL_STRINGS:
+        return None
+    return v
+
 
 class RestaurantOutput(BaseModel):
     id: str = Field(description="Unique identifier")
@@ -42,6 +50,11 @@ class RestaurantOutput(BaseModel):
         description="Tags like 'michelin-star', 'local-favorite', 'vegetarian-friendly'",
     )
 
+    @field_validator("cuisine", "area", "operating_hours", "price_range", "menu_url", "reservation_url", mode="before")
+    @classmethod
+    def _sanitize(cls, v: str | None) -> str | None:
+        return _sanitize_nullable_str(v)
+
 
 class AttractionOutput(BaseModel):
     id: str = Field(description="Unique identifier")
@@ -73,6 +86,11 @@ class AttractionOutput(BaseModel):
         default=None, description="Typical visit duration in minutes"
     )
 
+    @field_validator("kind", "area", "operating_hours", "reservation_url", "admission_price", mode="before")
+    @classmethod
+    def _sanitize(cls, v: str | None) -> str | None:
+        return _sanitize_nullable_str(v)
+
 
 class HotelOutput(BaseModel):
     id: str = Field(description="Unique identifier")
@@ -90,6 +108,11 @@ class HotelOutput(BaseModel):
         default_factory=list,
         description="Key amenities (e.g., 'wifi', 'pool', 'breakfast-included')",
     )
+
+    @field_validator("area", "price_per_night", mode="before")
+    @classmethod
+    def _sanitize(cls, v: str | None) -> str | None:
+        return _sanitize_nullable_str(v)
 
 
 class CarRentalOutput(BaseModel):
@@ -113,6 +136,11 @@ class CarRentalOutput(BaseModel):
         description="1-2 sentence explanation of why this is recommended"
     )
 
+    @field_validator("vehicle_class", "price_per_day", "pickup_location", "operating_hours", mode="before")
+    @classmethod
+    def _sanitize(cls, v: str | None) -> str | None:
+        return _sanitize_nullable_str(v)
+
 
 class FlightOutput(BaseModel):
     id: str = Field(description="Unique identifier")
@@ -130,6 +158,11 @@ class FlightOutput(BaseModel):
     why_recommended: str = Field(
         description="1-2 sentence explanation of why this is recommended"
     )
+
+    @field_validator("airline", "price_range", mode="before")
+    @classmethod
+    def _sanitize(cls, v: str | None) -> str | None:
+        return _sanitize_nullable_str(v)
 
 
 def _parse_iso_date(value: str) -> date:
@@ -314,23 +347,48 @@ class RestaurantEnrichment(BaseModel):
     cuisine: str | None = None
     rating: float | None = None
 
+    @field_validator("operating_hours", "menu_url", "reservation_url", "price_range", "cuisine", mode="before")
+    @classmethod
+    def _sanitize(cls, v: str | None) -> str | None:
+        return _sanitize_nullable_str(v)
+
 class AttractionEnrichment(BaseModel):
     operating_hours: str | None = None
     admission_price: str | None = None
     reservation_url: str | None = None
     kind: str | None = None
 
+    @field_validator("operating_hours", "admission_price", "reservation_url", "kind", mode="before")
+    @classmethod
+    def _sanitize(cls, v: str | None) -> str | None:
+        return _sanitize_nullable_str(v)
+
 class HotelEnrichment(BaseModel):
     price_per_night: str | None = None
     amenities: list[str] = Field(default_factory=list)
+
+    @field_validator("price_per_night", mode="before")
+    @classmethod
+    def _sanitize(cls, v: str | None) -> str | None:
+        return _sanitize_nullable_str(v)
 
 class CarRentalEnrichment(BaseModel):
     price_per_day: str | None = None
     vehicle_class: str | None = None
     operating_hours: str | None = None
 
+    @field_validator("price_per_day", "vehicle_class", "operating_hours", mode="before")
+    @classmethod
+    def _sanitize(cls, v: str | None) -> str | None:
+        return _sanitize_nullable_str(v)
+
 class FlightEnrichment(BaseModel):
     price_range: str | None = None
+
+    @field_validator("price_range", mode="before")
+    @classmethod
+    def _sanitize(cls, v: str | None) -> str | None:
+        return _sanitize_nullable_str(v)
 
 
 class EnrichmentQuery(BaseModel):

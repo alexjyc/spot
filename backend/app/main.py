@@ -216,7 +216,8 @@ def create_app() -> FastAPI:
                 month_name = month_names.get(month, "")
 
                 query = f"best {req.vibe.lower()} travel destinations {req.climate.lower()} weather {req.budget.lower()} {month_name}"
-                results = await tavily.search(query)
+                response = await tavily.search(query)
+                results = response.get("results", [])
 
                 total, snippets = len(results), []
                 for i, r in enumerate(results, 1):

@@ -3,8 +3,8 @@
 ## System Overview
 Spot On is a multi-agent travel recommendation system with:
 
-- **Frontend (Next.js)**: collects user input, starts a run, streams progress, and renders/export results.
-- **Backend (FastAPI + LangGraph)**: parses the request, runs 4 domain agents in parallel, enriches results, and aggregates the final response.
+- **Frontend (Next.js)**: collects user input, recommends a destination, starts a run, streams progress, and renders/exports results.
+- **Backend (FastAPI + LangGraph)**: validates constraints, runs 4 domain agents in parallel, optionally enriches missing fields, applies quality gating, and generates a budget report + final output.
 - **MongoDB (Atlas or local)**: stores run lifecycle, progress events, and artifacts.
 - **Tavily API**: provides grounded search + page extraction.
 - **OpenAI**: used via structured outputs to parse/normalize results.
@@ -17,29 +17,26 @@ Primary entrypoints:
 ## Architecture & Agent Roles
 
 ### LangGraph
-Source: `backend/app/graph/graph.py`, `backend/app/graph/nodes/parse.py`, `backend/app/graph/nodes/aggregate_results.py`
+Source: `backend/app/graph/graph.py`
 
 1. **ParseRequest** (`backend/app/graph/nodes/parse.py`)
-   - Validates structured `constraints` (origin, destination, dates) and derives query context for downstream agents.
-2. **Domain Agents** (parallel fan-out; **search only** - return raw results)
-   - **RestaurantAgent** (`backend/app/agents/restaurant.py`): returns top 15 raw restaurant search results.
-   - **AttractionsAgent** (`backend/app/agents/attractions.py`): returns top 15 raw attraction search results.
-   - **HotelAgent** (`backend/app/agents/hotel.py`): returns top 15 raw hotel search results.
-   - **TransportAgent** (`backend/app/agents/transport.py`): returns 15 car rentals + 15 flights (internally parallelizes car + flight subsearches).
-3. **WriterAgent** (`backend/app/agents/writer.py`)
-   - Waits for all 4 domain agents to complete (fan-in join).
-   - Runs **5 parallel LLM normalizations** to convert raw results into structured top picks.
-   - Produces: 4 restaurants, 4 attractions, 4 hotels, 3 car rentals, 3 flights (**18 total top picks**).
-   - Computes **references** field: raw items not selected as top picks (fallback options).
-4. **EnrichmentAgent** (`backend/app/agents/enrichment.py`)
-   - Collects URLs from restaurants, attractions, and hotels only (~12 items). Car rentals and flights are not enriched.
-   - Batch calls Tavily Extract (20 URLs at once).
-   - Uses LLM to parse extracted content for price, hours, address, phone.
-5. **AggregateResults** (`backend/app/graph/nodes/aggregate_results.py`)
-   - Merges enrichment data by `id` into each item and builds `final_output`.
+   - Validates structured `constraints` and derives `query_context` (destination city, airport codes when available, trip type, stay nights, etc.).
+2. **Domain Agents** (parallel fan-out; each agent performs **search + normalize**)
+   - **RestaurantAgent** (`backend/app/agents/restaurant.py`): Tavily search → LLM structured normalization → `restaurants[]`.
+   - **AttractionsAgent** (`backend/app/agents/attractions.py`): Tavily search → LLM structured normalization → `travel_spots[]`.
+   - **HotelAgent** (`backend/app/agents/hotel.py`): Tavily search → LLM structured normalization → `hotels[]`.
+   - **TransportAgent** (`backend/app/agents/transport.py`): parallel car + flight search → LLM normalization → `car_rentals[]`, `flights[]`.
+3. **EnrichAgent** (`backend/app/agents/enrichment.py`)
+   - Optional (controlled by `skip_enrichment`).
+   - Uses Tavily Extract (and targeted follow-up search) to fill missing enrichable fields across categories.
+   - May loop a bounded number of times based on `enrichment_gap_ratio` and `enrichment_loop_count`.
+4. **QualitySplit** (`backend/app/graph/nodes/quality_split.py`)
+   - Applies required-field gating; demotes items missing critical fields into `references[]`.
+5. **BudgetAgent** (`backend/app/agents/budget.py`)
+   - Produces a lightweight budget report (`report.total_estimated_budget`) and materializes `final_output`.
 
 ### Why this is "multi-agent"
-Each domain agent has a single responsibility and can evolve independently (queries, ranking, schemas, timeouts). LangGraph coordinates the workflow and ensures the WriterAgent waits for all 4 domain agents, then runs 5 parallel LLM normalizations. This **separation of search (I/O bound) from normalization (CPU bound)** enables dual parallelism for optimal performance.
+Each domain agent has a single responsibility and can evolve independently (queries, schemas, timeouts). LangGraph coordinates the workflow end-to-end, including parallel domain work, optional enrichment, quality gating, and reporting.
 
 ## LangGraph Flow
 Source: `backend/app/graph/graph.py`
@@ -51,104 +48,75 @@ graph TD
    ParseRequest --> HotelAgent
    ParseRequest --> TransportAgent
 
-   RestaurantAgent --> WriterAgent
-   AttractionsAgent --> WriterAgent
-   HotelAgent --> WriterAgent
-   TransportAgent --> WriterAgent
+   RestaurantAgent --> |enrichment| EnrichAgent
+   RestaurantAgent --> |skip| QualitySplit
+   AttractionsAgent --> |enrichment| EnrichAgent
+   AttractionsAgent --> |skip| QualitySplit
+   HotelAgent --> |enrichment| EnrichAgent
+   HotelAgent --> |skip| QualitySplit
+   TransportAgent --> |enrichment| EnrichAgent
+   TransportAgent --> |skip| QualitySplit
 
-   WriterAgent --> EnrichmentAgent
-   EnrichmentAgent --> AggregateResults
-   AggregateResults --> END
+   EnrichAgent --> |gap>50% & loops<2| EnrichAgent
+   EnrichAgent --> QualitySplit
+
+   QualitySplit --> BudgetAgent
+   BudgetAgent --> END
 ```
 
 - Entry point: `ParseRequest`
-- **First fan-out**: `ParseRequest -> {RestaurantAgent, AttractionsAgent, HotelAgent, TransportAgent}` (4 parallel search agents)
-- **First join**: `{RestaurantAgent, AttractionsAgent, HotelAgent, TransportAgent} -> WriterAgent`
-- **Second parallelism**: WriterAgent internally runs 5 LLM normalizations in parallel
-- Sequential: `WriterAgent -> EnrichmentAgent -> AggregateResults -> END`
-
-**Key innovation:** Domain agents search in parallel (4x). WriterAgent waits for all 4 (join pattern), then runs 5 LLM normalizations in parallel. This dual parallelism (search + normalization) delivers ~15s total vs ~25-30s sequential.
+- **Fan-out**: `ParseRequest -> {RestaurantAgent, AttractionsAgent, HotelAgent, TransportAgent}` (4 parallel domain agents)
+- **Conditional path**: each domain agent routes to `EnrichAgent` unless `skip_enrichment=true`, in which case it routes directly to `QualitySplit`.
+- **Enrichment loop**: `EnrichAgent` may loop based on a gap ratio threshold and loop count cap.
+- Sequential: `QualitySplit -> BudgetAgent -> END`
 
 Operational notes:
 - Node execution is wrapped with `_wrap(...)` to emit progress events to MongoDB (`append_event`, `set_node_progress`).
-- Join behavior is handled by LangGraph; WriterAgent waits until all 4 domain agents complete.
 
 ## Agent Roles - Detailed Responsibilities
 
 ### ParseRequest Node
 **File:** `backend/app/graph/nodes/parse.py`
 - Validates constraints (dates, origin, destination)
-- Derives query context (destination_city, airport_code, trip_nights, etc.)
+- Derives deterministic `query_context` (origin/destination city, IATA codes when present, trip type, stay nights, year)
 
-### Domain Agents (Parallel Execution - Search Only)
-All domain agents share the same pattern:
+### Domain Agents (Parallel Execution - Search + Normalize)
+All domain agents share the same high-level pattern:
 - Build multiple search queries (deterministic)
 - Execute parallel Tavily searches
 - Deduplicate by URL
-- Return TOP_N raw results sorted by relevance score
+- Keep the top N items by score (configured via `SEARCH_TOP_N`)
+- Normalize results into structured outputs using the LLM (chunked via `NORMALIZE_CHUNK_SIZE`)
 
 **RestaurantAgent** (`backend/app/agents/restaurant.py`)
-- TOP_N = 15 raw results
-- Queries: "best restaurants", "local favorites", "hidden gems"
-- Returns: `raw_restaurants`
+- Produces: `restaurants[]`
 
 **AttractionsAgent** (`backend/app/agents/attractions.py`)
-- TOP_N = 15 raw results
-- Queries: "must see attractions", "top things to do", "best places to visit"
-- Returns: `raw_travel_spots`
+- Produces: `travel_spots[]`
 
 **HotelAgent** (`backend/app/agents/hotel.py`)
-- TOP_N = 15 raw results
-- Queries: "best hotels", "top rated hotels"
-- Returns: `raw_hotels`
+- Produces: `hotels[]`
 
 **TransportAgent** (`backend/app/agents/transport.py`)
-- CAR_TOP_N = 15, FLIGHT_TOP_N = 15
 - Internally parallelizes car rental + flight searches
-- Returns: `raw_car_rentals`, `raw_flights`
+- Produces: `car_rentals[]`, `flights[]`
 
-### WriterAgent (5 Parallel LLM Calls)
-**File:** `backend/app/agents/writer.py`
-
-**Purpose:** Normalizes raw search results into structured top picks using specialized prompts.
-
-**Execution:**
-- Waits for all 4 domain agents to complete (LangGraph join)
-- Runs 5 LLM normalization calls in parallel using `asyncio.gather`
-- Each category uses domain-specific prompts with guardrails
-
-**Output counts:**
-- 4 restaurants (RESTAURANT_TOP = 4)
-- 4 attractions (ATTRACTION_TOP = 4)
-- 4 hotels (HOTEL_TOP = 4)
-- 3 car rentals (CAR_TOP = 3)
-- 3 flights (FLIGHT_TOP = 3)
-- **Total: 18 top picks**
-
-**References field:**
-- Computes items from raw_* that weren't selected as top picks
-- Provides fallback options if enrichment fails
-
-**Why separate normalization from search?**
-- Search is I/O bound (parallel Tavily calls)
-- Normalization is CPU bound (LLM processing)
-- Allows independent scaling and optimization
-- Prevents redundant search queries when LLM needs retry
-
-### EnrichmentAgent (Tavily Extract + LLM Parsing)
+### EnrichAgent (Tavily Extract + targeted follow-up search)
 **File:** `backend/app/agents/enrichment.py`
-- Collects URLs from restaurants, attractions, and hotels upto 12 items
-- Car rentals and flights are excluded from enrichment (low-quality aggregator pages)
-- Batch calls Tavily extract (20 URLs at once)
-- Uses LLM to parse extracted content for price, hours, address, phone
-- Returns: `enriched_data` dict (item_id → enriched fields)
-- PHASE1_CAP = 12 (3 types × 4 items)
+- Scans output items for missing enrichable fields.
+- Uses Tavily Extract in batches; may also generate targeted search queries to locate missing information (LLM generated queries).
+- Returns: `enriched_data` (item_id → enriched fields), plus `enrichment_gap_ratio` and `enrichment_loop_count`.
 
-### AggregateResults Node
-**File:** `backend/app/graph/nodes/aggregate_results.py`
-- Merges enriched_data into each item by ID
-- Builds final_output with all categories
-- Returns status "done"
+### QualitySplit Node (quality gating)
+**File:** `backend/app/graph/nodes/quality_split.py`
+- Merges `enriched_data` into items (fills only missing fields).
+- Demotes items missing critical fields into `references[]`.
+- Produces: `main_results` (category → list of items that passed gating).
+
+### BudgetAgent (budget report + final output)
+**File:** `backend/app/agents/budget.py`
+- Uses `main_results` to generate `report.total_estimated_budget` (best-effort).
+- Materializes `final_output` (category arrays, `constraints`, `references`, optional `report`).
 
 
 ## State Management Design
@@ -157,36 +125,24 @@ All domain agents share the same pattern:
 
 **Key patterns:**
 
-### Raw Fields (Parallel Merge with operator.add)
+### Core state keys
 ```python
-raw_restaurants: Annotated[list[dict[str, Any]], operator.add]
-raw_travel_spots: Annotated[list[dict[str, Any]], operator.add]
-raw_hotels: Annotated[list[dict[str, Any]], operator.add]
-raw_car_rentals: Annotated[list[dict[str, Any]], operator.add]
-raw_flights: Annotated[list[dict[str, Any]], operator.add]
-```
-- Each domain agent writes to its raw_* field
-- LangGraph merges lists automatically when parallel agents complete
-- WriterAgent reads from raw_* fields
+constraints: dict[str, Any]
+query_context: dict[str, Any]
 
-### Top Picks (Overwrite)
-```python
 restaurants: list[dict[str, Any]]
 travel_spots: list[dict[str, Any]]
 hotels: list[dict[str, Any]]
 car_rentals: list[dict[str, Any]]
 flights: list[dict[str, Any]]
-```
-- WriterAgent writes normalized top picks
-- Overwrites (not appends)
 
-### References
-```python
+enriched_data: dict[str, dict[str, Any]]
+main_results: dict[str, list[dict[str, Any]]]
 references: list[dict[str, Any]]
+
+travel_report: dict[str, Any]
+final_output: dict[str, Any]
 ```
-- Raw items not selected as top picks
-- Provides fallback if enrichment fails
-- Computed by WriterAgent
 
 ### Agent Statuses (Parallel Merge with operator.or_)
 ```python
@@ -194,6 +150,11 @@ agent_statuses: Annotated[dict[str, str], operator.or_]
 ```
 - Each agent writes `{agent_id: "completed"|"failed"|"partial"}`
 - LangGraph merges dicts: `{a: 1} | {b: 2} = {a: 1, b: 2}`
+
+### Warnings (Parallel Merge with operator.add)
+```python
+warnings: Annotated[list[str], operator.add]
+```
 
 
 ## Data Model (MongoDB)
@@ -206,25 +167,20 @@ MongoDB collections:
 - `status`: `queued | running | done | error | cancelled`
 - `createdAt`, `updatedAt`
 - `options`: feature flags (e.g. `skip_enrichment`)
-- `constraints`: structured TravelConstraints (origin, destination, departing_date, returning_date, interests, budget)
+- `constraints`: structured TravelConstraints (origin, destination, departing_date, returning_date)
 - `warnings`: array of strings (accumulated from agents)
 - `final_output`: aggregated output (see structure below)
 - `error`: `{ message: string }` on failure
-- `progress.nodes.<NodeName>`: last known `NodeEventPayload` per node (ParseRequest, RestaurantAgent, AttractionsAgent, HotelAgent, TransportAgent, WriterAgent, EnrichmentAgent, AggregateResults)
-- `durationMs`
+- `progress.nodes.<NodeName>`: last known `NodeEventPayload` per node (Queue, ParseRequest, RestaurantAgent, AttractionsAgent, HotelAgent, TransportAgent, EnrichAgent, QualitySplit, BudgetAgent)
 - `runType`: `"spot_on"`
-- `apiVersion`: `1`
+- `apiVersion`: `2`
 
 **`final_output` structure** (when `status=done`):
 
-- `restaurants`: array of 4 RestaurantOutput items
-- `travel_spots`: array of 4 AttractionOutput items
-- `hotels`: array of 4 HotelOutput items
-- `car_rentals`: array of 3 CarRentalOutput items (not enriched)
-- `flights`: array of 3 FlightOutput items (not enriched)
-- `references`: array of raw items not selected as top picks
-- `agent_statuses`: dict of agent_id → status
-- `warnings`: array of warning strings
+- `restaurants`, `travel_spots`, `hotels`, `car_rentals`, `flights`: arrays of items that passed `QualitySplit`
+- `references`: array of demoted/extra items
+- `constraints`: echoed constraints used for the run
+- `report`: optional budget report (`total_estimated_budget`)
 
 Indexes (created on startup):
 - `runs.updatedAt`
@@ -251,49 +207,114 @@ Index:
 
 ## Backend API Surface
 Source: `backend/app/main.py`
-- `POST /api/runs`: create a run with structured `constraints` (origin, destination, dates), enqueue execution, return `{ runId }`.
-- `GET /api/runs/{runId}`: fetch run status + progress + output (when done).
-- `GET /api/runs/{runId}/events`: SSE stream of progress/events.
-- `POST /api/runs/{runId}/cancel`: best-effort cancellation (cancels background task).
-- `GET /api/runs/{runId}/export/pdf`: export results as PDF (done-only).
-- `GET /api/runs/{runId}/export/xlsx`: export results as XLSX (done-only).
+- `POST /recommend`: recommend a destination based on user preferences.
+- `POST /runs`: create a run with structured `constraints`, enqueue execution, return `{ runId }`.
+- `GET /runs/{runId}`: fetch run status + progress + output (when done).
+- `GET /runs/{runId}/events`: SSE stream of progress/events.
+- `POST /runs/{runId}/cancel`: best-effort cancellation (cancels background task).
+- `GET /runs/{runId}/export/pdf`: export results as PDF (done-only).
+- `GET /runs/{runId}/export/xlsx`: export results as XLSX (done-only).
 
 
 ## Frontend Integration
-Source: `frontend/lib/api.ts`, `frontend/lib/sse.ts`, `frontend/next.config.js`, `frontend/app/api/**`
-- The browser uses relative paths (e.g. `/api/runs`) and relies on proxying/route handlers.
-- Configure backend base URL via `NEXT_PUBLIC_API_URL` (defaults to `http://localhost:8000`).
-- SSE uses `EventSource` to `/api/runs/{runId}/events`.
+Source: `frontend/lib/api.ts`, `frontend/lib/sse.ts`, `frontend/next.config.js`
+- Run orchestration uses relative paths (e.g. `/runs`) and relies on `frontend/next.config.js` rewrites to `NEXT_PUBLIC_API_URL` (defaults to `http://localhost:8000`).
+- Destination recommendation calls the backend directly (see `recommendDestination(...)` in `frontend/lib/api.ts`), so backend `CORS_ORIGINS` must include the UI origin.
+- SSE uses `EventSource` to `{NEXT_PUBLIC_API_URL}/runs/{runId}/events` (also requires backend CORS).
 
 ## Deployment Guide (AWS + MongoDB Atlas)
 This repo supports local development and container-based deployment.
 
 ### Required environment variables
-Source: `backend/app/config.py`, `backend/.env.example`, `frontend/.env`
+Source: `backend/app/config.py`, `backend/.env.example`, `frontend/.env.example`
 
 Backend:
 - `OPENAI_API_KEY`
 - `OPENAI_MODEL` (default: `gpt-4o-mini`)
+- `OPENAI_TIMEOUT`
 - `TAVILY_API_KEY`
-- `MONGODB_URI` (Atlas connection string recommended for AWS)
-- `DB_NAME` (default: `travel_planner`)
-- `CORS_ORIGINS` (comma-separated, e.g. `https://your-ui.example,https://www.your-ui.example`)
+- `TAVILY_SEARCH_TIMEOUT`
+- `TAVILY_EXTRACT_TIMEOUT`
+- `MONGODB_URI` 
+- `DB_NAME`
+- `CORS_ORIGINS` (e.g.: `http://localhost:3000`)
+
+Optional tuning (defaults in `config.py`):
+- `AGENT_SEARCH_TIMEOUT`
+- `AGENT_TRANSPORT_TIMEOUT`
+- `AGENT_BUDGET_TIMEOUT`
+- `AGENT_ENRICH_TIMEOUT`
+- `TAVILY_MAX_RESULTS`
+- `TAVILY_CALL_CAP`
+- `SEARCH_TOP_N`
+- `NORMALIZE_CHUNK_SIZE`
 
 Frontend:
-- `NEXT_PUBLIC_API_URL` (e.g. `https://your-backend.example`)
+- `NEXT_PUBLIC_API_URL` (e.g. `http://localhost:8000`)
 
-### Local (recommended for development)
-Source: `README.md`, `backend/docker-compose.yml`
-- Run Mongo locally (Docker is simplest).
-- Run backend with `uvicorn`.
-- Run frontend with `bun` dev server.
+### Local Deployment
 
-### AWS Elastic Beanstalk (Docker platform)
-Source: `backend/Dockerfile`, `backend/.elasticbeanstalk/config.yml`
+**MongoDB:**
+```bash
+docker run -d -p 27017:27017 -v mongo-data:/data/db --name travel-mongo mongo:7
+```
 
-High-level steps:
-1. Provision MongoDB Atlas (replica set) and whitelist your EB security group / outbound IP policy.
-2. Create an Elastic Beanstalk environment using the **Docker** platform.
-3. Deploy the backend container built from `backend/Dockerfile`.
-4. Set EB environment variables (`OPENAI_API_KEY`, `TAVILY_API_KEY`, `MONGODB_URI`, `CORS_ORIGINS`, etc.).
-5. Point the frontend at the EB URL via `NEXT_PUBLIC_API_URL` and deploy the UI (any hosting is fine: Vercel/S3+CloudFront/etc.).
+**Backend:**
+```bash
+cd backend
+uv venv && source .venv/bin/activate
+uv pip install -e .
+cp .env.example .env  # Edit with your API keys
+uv run uvicorn app.main:app --reload
+```
+
+**Frontend:**
+```bash
+cd frontend
+bun install
+cp .env.example .env.local  # Set NEXT_PUBLIC_API_URL
+bun run dev
+```
+
+---
+
+### AWS Elastic Beanstalk Deployment
+
+**Setup:**
+```bash
+pip install awsebcli
+cd backend
+eb init -p docker spot-on-api --region us-west-2
+```
+
+**Deploy:**
+```bash
+# Create environment
+eb create spot-on-prod --instance-type t3.medium
+
+# Set environment variables
+eb setenv \
+  OPENAI_API_KEY=xxx \
+  TAVILY_API_KEY=yyy \
+  MONGODB_URI=mongodb+srv://... \
+  CORS_ORIGINS=https://your-domain.com
+
+# Deploy updates
+eb deploy
+```
+
+**Manage:**
+```bash
+eb logs              # View logs
+eb logs --stream     # Stream logs
+eb ssh               # SSH into instance
+eb scale 3           # Scale instances
+eb terminate         # Terminate environment
+```
+
+**Frontend (Vercel):**
+```bash
+cd frontend
+echo "NEXT_PUBLIC_API_URL=https://your-eb-url.elasticbeanstalk.com" > .env.production
+vercel --prod
+```

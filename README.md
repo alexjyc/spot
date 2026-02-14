@@ -3,42 +3,12 @@
 ## Overview
 
 **Spot On** is a fast, parallel multi-agent travel recommendation system that provides curated suggestions for:
-1. **Restaurants** - Best dining options (top 4, enriched)
-2. **Travel Spots** - Must-see attractions (top 4, enriched)
-3. **Hotels** - Accommodation options with per-night pricing (top 4, enriched)
-4. **Car Rentals** - Vehicle rental options (top 3)
-5. **Flights** - One-way or round-trip flights (top 3)
+1. **Restaurants** - Best dining options
+2. **Travel Spots** - Must-see attractions
+3. **Hotels** - Accommodations with per-night pricing when available
+4. **Car Rentals** - Vehicle rental options
+5. **Flights** - One-way or round-trip flights
 
-### Key Features
-- ⚡ **Fast**: ~8-10 seconds average response time (parallel agent execution)
-- 🤖 **Multi-Agent**: 5 specialized agents working in parallel
-- 🔍 **Grounded**: All recommendations from Tavily search (real-time web data)
-- 📊 **Enriched**: Automatic extraction of prices, hours, addresses, phone numbers (restaurants, attractions, hotels only)
-- 🎯 **Simple**: Clean interface with minimal input required
-
----
-
-## Documentation
-
-This repository keeps the assignment’s deliverables split intentionally:
-
-- **README**: project summary, local setup, usage, examples, and repo layout.
-- **Technical docs**: `docs/TECHNICAL_DOC.md` (architecture, agent roles, LangGraph flow, MongoDB schema, deployment guide).
-
----
-
-## Assignment Context
-
-This project was built for the Tavily Engineering Assignment, which requires:
-1. Multi-agent system leveraging Tavily Search + Extract APIs
-2. Production-ready deployment (AWS Elastic Beanstalk + MongoDB Atlas)
-3. Real-time progress streaming and result exports
-
-**Key innovations:**
-- **6-agent architecture:** ParseRequest + 4 domain agents (parallel) + WriterAgent (5 parallel LLMs) + EnrichmentAgent
-- **Separation of concerns:** Search (I/O bound) separated from normalization (CPU bound)
-- **Graceful degradation:** Partial results if agents fail
-- **~15s average latency:** Parallel execution at both search and normalization stages
 
 ---
 
@@ -46,40 +16,54 @@ This project was built for the Tavily Engineering Assignment, which requires:
 
 ### Multi-Agent System (MAS)
 
-```
-                    ParseRequest (~500ms)
-                         │
-         ┌───────────────┼───────────────┬───────────────┐
-         │               │               │               │
-         ▼               ▼               ▼               ▼
-  RestaurantAgent  AttractionsAgent  HotelAgent   TransportAgent
-   (search only)    (search only)   (search only)  (search only)
-      TOP_N=15         TOP_N=15        TOP_N=15    CAR+FLIGHT=15+15
-         │               │               │               │
-         └───────────────┴───────────────┴───────────────┘
-                              ▼
-                        WriterAgent (~6s)
-                   (5 parallel LLM normalizations)
-                     4+4+4+3+3 = 18 top picks
-                              ▼
-                      EnrichmentAgent (~5s)
-                   (Tavily extract + LLM parse)
-                              ▼
-                      AggregateResults (~100ms)
-                              ▼
-                            END
+```mermaid
+graph TD
+   ParseRequest --> RestaurantAgent
+   ParseRequest --> AttractionsAgent
+   ParseRequest --> HotelAgent
+   ParseRequest --> TransportAgent
+
+   RestaurantAgent --> |enrichment| EnrichAgent
+   RestaurantAgent --> |skip| QualitySplit
+   AttractionsAgent --> |enrichment| EnrichAgent
+   AttractionsAgent --> |skip| QualitySplit
+   HotelAgent --> |enrichment| EnrichAgent
+   HotelAgent --> |skip| QualitySplit
+   TransportAgent --> |enrichment| EnrichAgent
+   TransportAgent --> |skip| QualitySplit
+
+   EnrichAgent --> |gap>50% & loops<2| EnrichAgent
+   EnrichAgent --> QualitySplit
+
+   QualitySplit --> BudgetAgent
+   BudgetAgent --> END
 ```
 
 **Execution Flow:**
 1. **ParseRequest** - Validate constraints and derive query context
-2. **4 Domain Agents (parallel)** - Search only, return raw results:
-   - RestaurantAgent: 15 raw results
-   - AttractionsAgent: 15 raw results
-   - HotelAgent: 15 raw results
-   - TransportAgent: 15 cars + 15 flights
-3. **WriterAgent** - 5 parallel LLM normalizations → 18 top picks (4+4+4+3+3) + references
-4. **EnrichmentAgent** - Batch extract webpages for restaurants, attractions, hotels only (12 items)
-5. **AggregateResults** - Merge enriched data into final output
+2. **4 Domain Agents (parallel)** - Tavily search + LLM structured normalization per category
+3. **EnrichAgent (optional)** - Tavily extract + targeted follow-up search to fill missing fields (bounded loop)
+4. **QualitySplit** - Demotes items missing critical fields (name, url) or all important fields into `references`
+5. **BudgetAgent** - Produces `report.total_estimated_budget` and materializes `final_output`
+
+
+
+## Folder Structure
+
+```
+.
+├── README.md
+├── docs/
+│   └── TECHNICAL_DOC.md
+├── backend/
+│   ├── app/                 # FastAPI app + LangGraph workflow + agents
+│   ├── tests/
+│   ├── Dockerfile           # AWS/production container
+│   └── .elasticbeanstalk/   # Elastic Beanstalk config (Docker platform)
+└── frontend/
+    ├── app/                 # Next.js UI
+    └── lib/
+```
 
 ---
 
@@ -97,10 +81,6 @@ uv pip install -e .
 2. **Set environment variables:**
 ```bash
 cp .env.example .env
-# Edit .env and add:
-# - OPENAI_API_KEY=sk-...
-# - TAVILY_API_KEY=tvly-...
-# - MONGODB_URI=mongodb://localhost:27017
 ```
 
 3. **Start MongoDB:**
@@ -128,7 +108,8 @@ mongod --dbpath /path/to/data
 
 3. **Update .env:**
 ```bash
-MONGODB_URI=mongodb+srv://user:pass@cluster.mongodb.net/travel_planner?retryWrites=true&w=majority
+MONGODB_URI=mongodb+srv://user:pass@cluster.mongodb.net/
+DB_NAME=YOUR_DB_NAME
 ```
 
 4. **Start backend:**
@@ -143,12 +124,12 @@ uv run uvicorn app.main:app --reload
 ```bash
 cd frontend
 bun install
+cp .env.example .env.local  # Set NEXT_PUBLIC_API_URL
 ```
 
 2. **Start dev server:**
 ```bash
-bun run dev
-# Frontend runs on http://localhost:3000
+bun run dev # Frontend runs on http://localhost:3000
 ```
 
 ---
@@ -160,247 +141,128 @@ bun run dev
 1. Open http://localhost:3000
 2. Fill in the form:
    - **Origin**: e.g., "NYC, Osaka, etc"
-   - **Destination**: e.g., "Seoul, LA, etc"
    - **Departing Date**: e.g., "2026-03-15"
    - **Returning Date**: (optional) e.g., "2026-03-18"
+   - **Vibe / Budget / Climate**: used to recommend a destination first
+   - **Deep Research**: toggles `skip_enrichment` — when enabled, EnrichAgent runs to fill missing fields
 3. Click "Find Recommendations"
-4. Wait ~8-10 seconds for results
-
-### API Usage
-
-**Create a run:**
-```bash
-curl -X POST http://localhost:8000/api/runs \
-  -H "Content-Type: application/json" \
-  -d '{
-    "constraints": {
-      "origin": "NYC",
-      "destination": "Seoul",
-      "departing_date": "2026-03-15",
-      "returning_date": "2026-03-18"
-    }
-  }'
-
-# Response: {"runId": "run_abc123"}
-```
-
-**Check run status:**
-```bash
-curl http://localhost:8000/api/runs/run_abc123
-```
-
-**Response structure:**
-```json
-{
-  "runId": "run_abc123",
-  "status": "done",
-  "constraints": {
-    "origin": "Tokyo (NRT)",
-    "destination": "Seoul (ICN)",
-    "departing_date": "2026-03-15",
-    "returning_date": "2026-03-18"
-  },
-  "final_output": {
-    "restaurants": [...],
-    "travel_spots": [...],
-    "hotels": [...],
-    "car_rentals": [...],
-    "flights": [...],
-    "references": [...],
-    "agent_statuses": {...},
-    "warnings": [...]
-  },
-  "warnings": [],
-  "durationMs": 8234
-}
-```
-
----
-
-## Testing
-
-### Backend Tests
-
-```bash
-cd backend
-source .venv/bin/activate
-
-# Unit tests (agents)
-pytest tests/test_agents.py -v
-
-# Integration test (full graph)
-pytest tests/test_graph_integration.py -v
-
-# Run all tests
-pytest tests/ -v
-```
-
-### Manual Testing
-
-**Test ParseRequest:**
-```bash
-curl -X POST http://localhost:8000/api/runs \
-  -H "Content-Type: application/json" \
-  -d '{
-    "constraints": {
-      "origin": "Los Angeles",
-      "destination": "Paris",
-      "departing_date": "2026-04-10",
-      "returning_date": "2026-04-17"
-    }
-  }'
-```
-
-**Test with interests:**
-```bash
-curl -X POST http://localhost:8000/api/runs \
-  -H "Content-Type: application/json" \
-  -d '{
-    "constraints": {
-      "origin": "New York",
-      "destination": "London",
-      "departing_date": "2026-04-01",
-      "returning_date": "2026-04-07",
-      "interests": ["food", "museums"],
-      "budget": "moderate"
-    }
-  }'
-```
-
----
-
-## Performance
-
-### Expected Execution Times
-
-| Phase | Duration | Notes |
-|-------|----------|-------|
-| ParseRequest | ~500ms | Constraint validation |
-| Domain Agents | ~3-5s | **Parallel execution** (4 search agents) |
-| WriterAgent | ~5-6s | 5 parallel LLM normalizations → 18 top picks |
-| EnrichmentAgent | ~4-5s | Tavily extract + LLM parsing |
-| AggregateResults | ~100ms | Merge data |
-| **Total** | **~13-17s** | vs ~25-30s sequential |
-
-### Timeouts
-
-- RestaurantAgent: 30s
-- AttractionsAgent: 30s
-- HotelAgent: 30s
-- TransportAgent: 40s (two sub-searches)
-- EnrichmentAgent: 45s
-
----
-
-## Folder Structure
-
-```
-.
-├── README.md
-├── docs/
-│   └── TECHNICAL_DOC.md
-├── backend/
-│   ├── app/                 # FastAPI app + LangGraph workflow + agents
-│   ├── tests/
-│   ├── Dockerfile           # AWS/production container
-│   └── .elasticbeanstalk/   # Elastic Beanstalk config (Docker platform)
-└── frontend/
-    ├── app/                 # Next.js UI + route handlers (proxy)
-    └── lib/
-```
-
-## Debugging
-
-### Check Logs
-
-Backend logs show parallel execution:
-```
-Graph node start: ParseRequest
-Graph node end: ParseRequest (durationMs=500)
-Graph node start: RestaurantAgent
-Graph node start: AttractionsAgent    <-- All 4 start simultaneously
-Graph node start: HotelAgent
-Graph node start: TransportAgent
-Graph node end: RestaurantAgent (durationMs=3200)
-Graph node end: AttractionsAgent (durationMs=2800)
-Graph node end: HotelAgent (durationMs=3500)
-Graph node end: TransportAgent (durationMs=4200)
-Graph node start: WriterAgent        <-- Starts after all 4 complete
-Graph node end: WriterAgent (durationMs=5800)
-Graph node start: EnrichmentAgent
-Graph node end: EnrichmentAgent (durationMs=4500)
-```
+4. The UI will:
+   - call `POST /recommend` to choose a destination, then
+   - call `POST /runs` to execute the LangGraph workflow and stream progress
 
 ---
 
 ## API Reference
 
-### POST /api/runs
+### POST /recommend
 
-Create a new recommendation run.
+**Request:**
+```json
+{
+  "origin": "San Francisco",
+  "departing_date": "2026-03-15",
+  "returning_date": "2026-03-20",
+  "vibe": "cultural and historic",
+  "budget": "moderate",
+  "climate": "warm"
+}
+```
+
+**Response:**
+```json
+{
+  "destination": "Kyoto",
+  "reasoning": "Rich cultural heritage with temples, traditional districts, and spring weather"
+}
+```
+
+---
+
+### POST /runs
 
 **Request:**
 ```json
 {
   "constraints": {
-    "origin": "string (required)",
-    "destination": "string (required)",
-    "departing_date": "YYYY-MM-DD (required)",
-    "returning_date": "YYYY-MM-DD (optional)",
-    "interests": ["string (optional)"],
-    "budget": "string (optional)"
+    "origin": "San Francisco (SFO)",
+    "destination": "Tokyo (NRT)",
+    "departing_date": "2026-03-15",
+    "returning_date": "2026-03-20"
   },
-  "options": {}
+  "options": {
+    "skip_enrichment": false
+  }
 }
 ```
 
 **Response:**
 ```json
 {
-  "runId": "string"
+  "runId": "run_abc123"
 }
 ```
 
-### GET /api/runs/{runId}
+---
 
-Get run status and results.
+### GET /runs/{runId}
 
 **Response:**
 ```json
 {
-  "runId": "string",
-  "status": "queued|running|done|error",
-  "updatedAt": "datetime",
+  "runId": "run_abc123",
+  "status": "done",
+  "updatedAt": "2026-02-14T10:30:00Z",
+  "progress": {
+    "nodes": {
+      "RestaurantAgent": { "node": "RestaurantAgent", "status": "end" },
+      "AttractionsAgent": { "node": "AttractionsAgent", "status": "end" }
+    }
+  },
   "constraints": {
-    "origin": "string",
-    "destination": "string",
-    "departing_date": "YYYY-MM-DD",
-    "returning_date": "YYYY-MM-DD|null"
+    "origin": "San Francisco (SFO)",
+    "destination": "Tokyo (NRT)",
+    "departing_date": "2026-03-15",
+    "returning_date": "2026-03-20"
   },
   "final_output": {
-    "restaurants": [...],
-    "travel_spots": [...],
-    "hotels": [...],
-    "car_rentals": [...],
-    "flights": [...],
-    "references": [...],
-    "agent_statuses": {...},
-    "warnings": [...]
+    "restaurants": [{ "name": "Sukiyabashi Jiro", "cuisine": "Sushi", "area": "Ginza" }],
+    "travel_spots": [{ "name": "Senso-ji Temple", "kind": "Historic", "area": "Asakusa" }],
+    "hotels": [{ "name": "Park Hyatt Tokyo", "area": "Shinjuku", "price_per_night": "$450" }],
+    "car_rentals": [{ "provider": "Toyota Rent a Car", "vehicle_class": "Compact" }],
+    "flights": [{ "airline": "ANA", "route": "SFO-NRT", "price_range": "$800-1200" }],
+    "constraints": { "origin": "San Francisco (SFO)", "destination": "Tokyo (NRT)" },
+    "references": [],
+    "report": { "total_estimated_budget": "$3,200-4,800" }
   },
-  "warnings": ["string"],
-  "durationMs": 0,
+  "warnings": [],
   "error": null
 }
 ```
 
-### GET /api/runs/{runId}/events
+---
 
-SSE stream of run events.
+### GET /runs/{runId}/events
 
-**Events:**
-- `node` - Node execution start/end
-- `artifact` - Intermediate results
-- `log` - General log messages
+Server-Sent Events stream with real-time updates.
+
+**Event types:**
+- `node` — `{ node, status, message? }` per agent lifecycle
+- `artifact` — `{ type: "constraints" | "final_output", payload }` materialized data
+- `log` — progress messages
+
+---
+
+### POST /runs/{runId}/cancel
+
+Best-effort cancellation of a running workflow.
+
+### GET /runs/{runId}/export/pdf
+
+Export completed run results as a PDF document (`status=done` only).
+
+### GET /runs/{runId}/export/xlsx
+
+Export completed run results as an Excel spreadsheet (`status=done` only).
 
 ---
 
