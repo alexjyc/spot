@@ -46,5 +46,5 @@ async def parse_request(state: dict[str, Any], *, deps: Any) -> dict[str, Any]:
 
     return {
         "constraints": constraints.model_dump(),
-        "query_context": ctx.model_dump(),
+        "query_context": {**ctx.model_dump(), **state.get("preferences", {})},
     }

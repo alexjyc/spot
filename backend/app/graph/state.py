@@ -41,6 +41,7 @@ class SpotOnState(TypedDict, total=False):
 
     # Options
     skip_enrichment: bool
+    preferences: dict[str, Any]
 
     # Metadata
     agent_statuses: Annotated[

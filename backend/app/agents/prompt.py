@@ -1,5 +1,5 @@
 def build_restaurant_prompt(*, destination: str, item_count: int) -> str:
-    return f"""ROLE: You are a culinary journalist with 15 years reviewing dining scenes worldwide.
+    return f"""ROLE: You are an data extraction specialist .
 
 TASK: Normalize ALL restaurant search results for {destination} into structured output.
 
@@ -25,11 +25,12 @@ STEPS:
 3. Extract fields from source text and page_content per source
 4. Normalize each unique source into structured output
 
-CALIBRATION: If < 80% confident a value is correct, set to null."""
+CALIBRATION: If < 80% confident a value is correct, set to null.
+"""
 
 
 def build_attractions_prompt(*, destination: str, item_count: int) -> str:
-    return f"""ROLE: You are a travel editor specializing in curating "essential experiences" lists for first-time visitors.
+    return f"""ROLE: You are a data extraction specialist.
 
 TASK: Normalize ALL attraction search results for {destination} into structured output.
 
@@ -53,7 +54,8 @@ STEPS:
 3. Extract fields from source text and page_content per source
 4. Normalize each unique source into structured output
 
-CALIBRATION: If < 80% confident a value is correct, set to null."""
+CALIBRATION: If < 80% confident a value is correct, set to null.
+"""
 
 
 def build_hotel_prompt(
@@ -64,7 +66,7 @@ def build_hotel_prompt(
     stay_nights: int | None = None,
     item_count: int,
 ) -> str:
-    return f"""ROLE: You are a hotel industry analyst evaluating accommodations for a travel platform, with expertise in value assessment and location scoring.
+    return f"""ROLE: You are a data extraction specialist.
 
 TASK: Normalize ALL hotel search results for {destination} into structured output.
 
@@ -97,11 +99,12 @@ STEPS:
 4. Normalize each unique source into structured output
 
 
-CALIBRATION: If < 80% confident a value is correct, set to null."""
+CALIBRATION: If < 80% confident a value is correct, set to null.
+"""
 
 
 def build_car_rental_prompt(*, destination: str, departing_date: str, returning_date: str | None = None, item_count: int) -> str:
-    return f"""ROLE: You are a transportation logistics specialist evaluating car rental options for travelers.
+    return f"""ROLE: You are a data extraction specialist.
 
 TASK: Normalize ALL car rental search results for {destination} into structured output.
 
@@ -142,7 +145,7 @@ def build_flight_prompt(
     trip_type: str,
     item_count: int,
 ) -> str:
-    return f"""ROLE: You are a flight booking analyst evaluating airline options for value, convenience, and reliability.
+    return f"""ROLE: You are a data extraction specialist.
 
 TASK: Normalize ALL flight search results from {origin} to {destination} into structured output.
 
@@ -266,7 +269,12 @@ def build_enrichment_query_prompt() -> str:
 
 TASK: For each item, create ONE precise search query that is most likely to surface the missing fields.
 
-RULES:
+OUTPUT RULES:
+- MUST give at least 3 search queries
+- Make sure each query target DISTINCT missing fields
+
+
+Steps:
 1. Include the item name and city in every query
 2. Add field-specific keywords:
    - menu_url/reservation_url → "menu" "reservations" "opentable" "resy"

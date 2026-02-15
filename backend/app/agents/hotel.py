@@ -15,8 +15,9 @@ class HotelAgent(BaseAgent):
 
             city = qctx.get("destination_city")
             current_year = qctx.get("depart_year", 2026)
+            budget = qctx.get("budget")
 
-            primary, fallback = self._build_queries(city, current_year)
+            primary, fallback = self._build_queries(city, current_year, budget=budget)
             self.logger.info(
                 f"HotelAgent searching with {len(primary)} primary queries",
                 extra={"run_id": state.get("runId"), "destination": city},
@@ -93,7 +94,7 @@ class HotelAgent(BaseAgent):
             departing_date=departing_date,
             returning_date=returning_date,
             stay_nights=stay_nights,
-            item_count=len(deduped),
+            item_count=len(deduped)
         )
 
         messages = [
@@ -115,12 +116,23 @@ class HotelAgent(BaseAgent):
             self.logger.error(f"Hotel normalization failed: {e}", exc_info=True)
             return []
 
-    def _build_queries(self, city: str, current_year: int) -> tuple[list[str], list[str]]:
+    def _build_queries(
+        self, city: str, current_year: int, *, budget: str | None = None
+    ) -> tuple[list[str], list[str]]:
         primary = [
             f"best hotels in {city} {current_year}",
             f"where to stay in {city} best neighborhoods for tourists",
-            f"boutique hotels {city} unique stays",
         ]
+
+        if budget == "Luxury":
+            primary.append(f"luxury 5-star hotels {city} premium resorts")
+        elif budget == "Budget-friendly":
+            primary.append(f"budget hotels hostels {city} cheap stays")
+        elif budget == "Mid-range":
+            primary.append(f"boutique mid-range hotels {city} good value")
+        else:
+            primary.append(f"boutique hotels {city} unique stays")
+
         fallback = [
             f"top rated hotels in {city} city center walkable",
             f"best hotels in {city} downtown",

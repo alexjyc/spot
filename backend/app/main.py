@@ -129,6 +129,11 @@ def create_app() -> FastAPI:
                 "warnings": [],
                 "constraints": run_doc.get("constraints") or {},
                 "skip_enrichment": bool(options.get("skip_enrichment")),
+                "preferences": {
+                    "vibe": options.get("vibe"),
+                    "budget": options.get("budget"),
+                    "climate": options.get("climate"),
+                },
             }
 
             final_state = await graph.ainvoke(initial_state)

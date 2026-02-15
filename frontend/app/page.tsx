@@ -170,7 +170,7 @@ export default function Page() {
     };
 
     try {
-      const { runId } = await createRun({ constraints, options: { skip_enrichment: !enrichmentEnabled } });
+      const { runId } = await createRun({ constraints, options: { skip_enrichment: !enrichmentEnabled, vibe, budget, climate } });
       setRunId(runId);
       runIdRef.current = runId;
       setNodes((prev) => ({

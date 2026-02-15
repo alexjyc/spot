@@ -27,6 +27,5 @@ bun.lockb
 *.md.export
 *.json.export
 
-backend/.elasticbeanstalk/*
-!backend/.elasticbeanstalk/*.cfg.yml
-!backend/.elasticbeanstalk/*.global.yml
+.vercel
+.elasticbeanstalk/

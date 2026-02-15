@@ -15,8 +15,9 @@ class AttractionsAgent(BaseAgent):
 
             city = qctx.get("destination_city")
             current_year = qctx.get("depart_year", 2026)
+            vibe = qctx.get("vibe")
 
-            primary, fallback = self._build_queries(city, current_year)
+            primary, fallback = self._build_queries(city, current_year, vibe=vibe)
             self.logger.info(
                 f"AttractionsAgent searching with {len(primary)} primary queries",
                 extra={"run_id": state.get("runId"), "destination": city},
@@ -104,12 +105,25 @@ class AttractionsAgent(BaseAgent):
             self.logger.error(f"Attractions normalization failed: {e}", exc_info=True)
             return []
 
-    def _build_queries(self, city: str, current_year: int) -> tuple[list[str], list[str]]:
+    def _build_queries(
+        self, city: str, current_year: int, *, vibe: str | None = None
+    ) -> tuple[list[str], list[str]]:
         primary = [
             f"top attractions {city} must see {current_year}",
             f"{city} best things to do iconic landmarks sightseeing",
-            f"{city} unique experiences hidden gems",
         ]
+
+        if vibe == "Adventure":
+            primary.append(f"outdoor adventure {city} hiking diving sports")
+        elif vibe == "Culture & History":
+            primary.append(f"museums historic sites UNESCO heritage {city}")
+        elif vibe == "Beach & Relaxation":
+            primary.append(f"beaches spa wellness relaxation {city}")
+        elif vibe == "Food & Nightlife":
+            primary.append(f"food tours night markets bar districts {city}")
+        else:
+            primary.append(f"{city} unique experiences hidden gems")
+
         fallback = [
             f"{city} markets historic districts walking areas",
             f"{city} free things to do self guided walking tour",

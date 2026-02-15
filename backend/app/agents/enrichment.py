@@ -64,14 +64,25 @@ class EnrichmentAgent(BaseAgent):
     async def execute(self, state: dict[str, Any]) -> dict[str, Any]:
         try:
             timeout = self.deps.settings.agent_enrich_timeout
-            return await self.with_timeout(
+            loop_count = state.get("enrichment_loop_count", 0)
+            # Shared mutable dict — _run() writes here incrementally
+            self._partial: dict[str, dict[str, Any]] = {
+                k: dict(v) for k, v in state.get("enriched_data", {}).items()
+            }
+            result = await self.with_timeout(
                 self._run(state), timeout_seconds=timeout
-            ) or {
-                "enriched_data": {},
-                "enrichment_gap_ratio": 1.0,
-                "enrichment_loop_count": state.get("enrichment_loop_count", 0) + 1,
-                "agent_statuses": {self.agent_id: "failed"},
-                "warnings": ["EnrichAgent timed out"],
+            )
+            if result is not None:
+                return result
+            # Timeout — return whatever we collected
+            filled = sum(1 for v in self._partial.values() if v)
+            self.logger.info("EnrichAgent timed out with %d partial items saved", filled)
+            return {
+                "enriched_data": self._partial,
+                "enrichment_gap_ratio": 0.6,
+                "enrichment_loop_count": loop_count + 1,
+                "agent_statuses": {self.agent_id: "partial"},
+                "warnings": [f"Enrichment timed out ({filled} items partially enriched)"],
             }
         except Exception as e:
             self.logger.error("EnrichAgent failed: %s", e, exc_info=True)
@@ -82,11 +93,15 @@ class EnrichmentAgent(BaseAgent):
         tavily_calls = 0
         loop_count = state.get("enrichment_loop_count", 0)
 
-        prev_enriched = state.get("enriched_data", {})
-        enriched: dict[str, dict[str, Any]] = {k: dict(v) for k, v in prev_enriched.items()}
+        enriched = self._partial
+        total_enrichable = self._count_total_enrichable_fields(state)
+        max_items = self.deps.settings.enrich_max_items_per_pass
 
         gaps = self._scan_missing_fields(state, enriched)
-        total_enrichable = self._count_total_enrichable_fields(state)
+        # Prioritize: fewer missing fields = faster to complete = more items enriched
+        gaps.sort(key=lambda g: len(g["missing_fields"]))
+        if len(gaps) > max_items:
+            gaps = gaps[:max_items]
 
         if not gaps:
             self.logger.info("EnrichAgent: nothing to enrich")
@@ -250,8 +265,8 @@ class EnrichmentAgent(BaseAgent):
                     except Exception as e:
                         self.logger.warning("EnrichAgent extract P2 failed: %s", e)
 
-        final_gaps = self._rescan_after_enrichment(gaps, enriched)
-        total_missing = sum(len(g["missing_fields"]) for g in final_gaps)
+        all_gaps = self._scan_missing_fields(state, enriched)
+        total_missing = sum(len(g["missing_fields"]) for g in all_gaps)
         gap_ratio = total_missing / total_enrichable if total_enrichable > 0 else 0.0
 
         self.logger.info(

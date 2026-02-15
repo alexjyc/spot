@@ -18,12 +18,13 @@ class Settings(BaseSettings):
     agent_search_timeout: int = Field(default=50, validation_alias="AGENT_SEARCH_TIMEOUT")
     agent_transport_timeout: int = Field(default=60, validation_alias="AGENT_TRANSPORT_TIMEOUT")
     agent_budget_timeout: int = Field(default=30, validation_alias="AGENT_BUDGET_TIMEOUT")
-    agent_enrich_timeout: int = Field(default=75, validation_alias="AGENT_ENRICH_TIMEOUT")
+    agent_enrich_timeout: int = Field(default=120, validation_alias="AGENT_ENRICH_TIMEOUT")
     
     tavily_max_results: int = Field(default=8, validation_alias="TAVILY_MAX_RESULTS")
     tavily_call_cap: int = Field(default=3, validation_alias="TAVILY_CALL_CAP")
     search_top_n: int = Field(default=12, validation_alias="SEARCH_TOP_N")
     normalize_chunk_size: int = Field(default=4, validation_alias="NORMALIZE_CHUNK_SIZE")
+    enrich_max_items_per_pass: int = Field(default=25, validation_alias="ENRICH_MAX_ITEMS_PER_PASS")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

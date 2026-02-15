@@ -2,6 +2,9 @@ import type { RecommendedDestination, RunResponse } from "../types/api";
 
 export type RunOptions = {
   skip_enrichment?: boolean;
+  vibe?: string;
+  budget?: string;
+  climate?: string;
 };
 
 export type CreateRunRequest = {

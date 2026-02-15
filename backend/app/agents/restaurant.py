@@ -21,8 +21,10 @@ class RestaurantAgent(BaseAgent):
 
             city = qctx.get("destination_city")
             current_year = qctx.get("depart_year", 2025)
+            vibe = qctx.get("vibe")
+            budget = qctx.get("budget")
 
-            primary, fallback = self._build_queries(city, current_year)
+            primary, fallback = self._build_queries(city, current_year, vibe=vibe, budget=budget)
             self.logger.info(
                 f"RestaurantAgent searching with {len(primary)} primary queries",
                 extra={"run_id": state.get("runId"), "destination": city},
@@ -113,12 +115,25 @@ class RestaurantAgent(BaseAgent):
             self.logger.error(f"Restaurant normalization failed: {e}", exc_info=True)
             return []
 
-    def _build_queries(self, city: str, current_year: int) -> tuple[list[str], list[str]]:
+    def _build_queries(
+        self, city: str, current_year: int, *, vibe: str | None = None, budget: str | None = None
+    ) -> tuple[list[str], list[str]]:
         primary = [
             f"best restaurants in {city} {current_year}",
             f"top rated restaurants {city} local favorites where to eat",
             f"Michelin Guide {city} restaurants Bib Gourmand",
         ]
+
+        if budget == "Luxury":
+            primary.append(f"fine dining {city} upscale tasting menu")
+        elif budget == "Budget-friendly":
+            primary.append(f"cheap eats {city} street food affordable")
+        elif budget == "Mid-range":
+            primary.append(f"best value restaurants {city} local dining")
+
+        if vibe == "Food & Nightlife":
+            primary.append(f"food scene {city} must try nightlife")
+
         fallback = [
             f"hidden gem restaurants {city} underrated dining",
             f"{city} chef's tasting menu best restaurants",

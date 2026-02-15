@@ -158,6 +158,7 @@ class TransportAgent(BaseAgent):
         destination_airport = qctx.get("destination_code")
         departing_date = qctx.get("departing_date")
         returning_date = qctx.get("returning_date")
+        budget = qctx.get("budget")
 
         if not origin_airport or not destination_airport:
             origin_airport = qctx.get("origin_city")
@@ -166,9 +167,16 @@ class TransportAgent(BaseAgent):
         if returning_date:
             returning_date = " -> " + returning_date
 
+        if budget == "Luxury":
+            price_query = f"business class premium flights {origin_airport} -> {destination_airport} {departing_date}{returning_date}"
+        elif budget == "Mid-range":
+            price_query = f"best value flights {origin_airport} -> {destination_airport} {departing_date}{returning_date}"
+        else:
+            price_query = f"cheap flights {origin_airport} -> {destination_airport} {departing_date}{returning_date}"
+
         primary = [
             f"flights {origin_airport} -> {destination_airport} {departing_date}{returning_date}",
-            f"cheap flights {origin_airport} -> {destination_airport} {departing_date}{returning_date}",
+            price_query,
             f"direct nonstop flights {origin_airport} -> {destination_airport} {departing_date}{returning_date}",
         ]
         fallback = [
@@ -244,7 +252,7 @@ class TransportAgent(BaseAgent):
             departing_date=departing_date,
             returning_date=returning_date,
             trip_type=trip_type,
-            item_count=len(deduped),
+            item_count=len(deduped)
         )
         messages = [
             SystemMessage(content=system_prompt),
