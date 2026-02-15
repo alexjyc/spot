@@ -404,13 +404,13 @@ function FlightCard({ flight }: { flight: Flight }) {
   return (
     <div style={compactCardStyle}>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-        <h4 style={subTitleStyle}>{flight.airline || "Airline"}</h4>
+        <h4 style={subTitleStyle}>{flight.route}</h4>
         {flight.price_range && <span style={compactPriceStyle}>{flight.price_range}</span>}
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
         <Plane size={16} color="#FF4F00" />
-        <span style={{ fontSize: 15, color: "#1d1d1f", fontWeight: 500 }}>{flight.route}</span>
+        <span style={{ fontSize: 15, color: "#1d1d1f", fontWeight: 500 }}>{flight.airline || "Airline"}</span>
       </div>
 
       <span style={tertiaryPillStyle}>{flight.trip_type === "round-trip" ? "Round-trip" : "One-way"}</span>

@@ -23,7 +23,7 @@ ENRICHABLE_FIELDS: dict[str, list[str]] = {
     "attraction": ["operating_hours", "admission_price", "reservation_url", "kind"],
     "hotel": ["price_per_night", "amenities"],
     "car_rental": ["price_per_day", "vehicle_class", "operating_hours"],
-    "flight": ["price_range"],
+    "flight": ["price_range", "airline"],
 }
 
 STATE_KEYS: dict[str, str] = {

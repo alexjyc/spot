@@ -9,7 +9,7 @@ CRITICAL_FIELDS: dict[str, list[str]] = {
     "travel_spots": ["name", "url"],
     "hotels": ["name", "url"],
     "car_rentals": ["provider", "url"],
-    "flights": ["airline", "url"],
+    "flights": ["route", "url"],
 }
 
 # Tier 2: at least 1 required for main results
@@ -23,7 +23,7 @@ IMPORTANT_FIELDS: dict[str, list[str]] = {
 
 NAME_FIELD_MAP: dict[str, str] = {
     "car_rentals": "provider",
-    "flights": "airline",
+    "flights": "route",
 }
 
 
