@@ -18,10 +18,6 @@ const getBaseUrl = () => {
   return "http://localhost:8000";
 };
 
-const getDirectUrl = () => {
-  return process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-};
-
 async function apiFetch(path: string, init?: RequestInit) {
   const baseUrl = getBaseUrl();
   const url = path.startsWith("http") ? path : `${baseUrl}${path}`;
@@ -48,7 +44,7 @@ export type RecommendRequest = {
 };
 
 export async function recommendDestination(body: RecommendRequest): Promise<RecommendedDestination> {
-  const res = await apiFetch(`${getDirectUrl()}/recommend`, { method: "POST", body: JSON.stringify(body) });
+  const res = await apiFetch("/recommend", { method: "POST", body: JSON.stringify(body) });
   return await res.json();
 }
 
